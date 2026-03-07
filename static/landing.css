@@ -1,0 +1,304 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+3270&display=swap');
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --fg:      #c8c8c8;
+  --fg-hi:   #ffffff;
+  --fg-mid:  #888888;
+  --fg-dim:  #555555;
+  --fg-faint:#333333;
+  --bg:      #0c0c0c;
+  --bg-panel:#111111;
+  --font:    'IBM 3270', 'Courier New', monospace;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: none;
+}
+
+/* CRT overlay */
+.crt {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.crt::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 1px,
+    rgba(0, 0, 0, 0.12) 1px,
+    rgba(0, 0, 0, 0.12) 2px
+  );
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.crt::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 50%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+  pointer-events: none;
+  z-index: 1001;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.landing {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 30px 40px;
+  position: relative;
+  perspective: 1200px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+
+.title {
+  font-size: 52px;
+  color: var(--fg-hi);
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--fg-dim);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* ============================================================
+   MAIN AREA
+   ============================================================ */
+.main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+/* ============================================================
+   LEFT MENU — tilted inward (right edge closer)
+   ============================================================ */
+.menu-left {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-top: 30px;
+  z-index: 10;
+  transform: perspective(900px) rotateY(4deg);
+  transform-origin: left center;
+}
+
+.menu-item {
+  position: relative;
+  display: block;
+  padding: 10px 20px 10px 16px;
+  margin-bottom: 2px;
+  font-size: 16px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-mid);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.menu-item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transform: skewX(-8deg);
+  transition: background 0.15s;
+  z-index: -1;
+}
+
+.menu-item:hover {
+  color: var(--fg-hi);
+}
+
+.menu-item:hover::before {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menu-item.active {
+  color: var(--fg-hi);
+}
+
+.menu-item.active::before {
+  background: rgba(255, 255, 255, 0.12);
+  border-left: 3px solid var(--fg-hi);
+}
+
+/* ============================================================
+   CENTER — ASCII ART
+   ============================================================ */
+.center-art {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 20px;
+}
+
+.ascii-scene {
+  font-size: 9px;
+  line-height: 1.1;
+  color: var(--fg-dim);
+  white-space: pre;
+  text-align: center;
+  position: relative;
+  user-select: none;
+}
+
+/* ============================================================
+   RIGHT PANEL — tilted inward (left edge closer)
+   ============================================================ */
+.panel-right {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-top: 30px;
+  z-index: 10;
+  transform: perspective(900px) rotateY(-4deg);
+  transform-origin: right center;
+}
+
+.info-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--fg-faint);
+  padding: 12px 16px;
+  width: 100%;
+  transform: skewX(-2deg);
+}
+
+.info-panel-title {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--fg-faint);
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+}
+
+.info-row .label {
+  font-size: 11px;
+  color: var(--fg-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.info-row .value {
+  font-size: 13px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   BOTTOM BAR
+   ============================================================ */
+.bottom-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
+  border-top: 1px solid var(--fg-faint);
+  font-size: 11px;
+  color: var(--fg-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bottom-bar .key {
+  color: var(--fg-mid);
+  border: 1px solid var(--fg-dim);
+  padding: 1px 6px;
+  margin-right: 6px;
+  font-size: 10px;
+}
+
+.bottom-bar .action {
+  margin-right: 24px;
+}
+
+/* ============================================================
+   BOOT ANIMATION
+   ============================================================ */
+.boot-fade {
+  opacity: 0;
+  transform-style: preserve-3d;
+  transition: opacity 0.6s ease;
+}
+
+.boot-fade.visible {
+  opacity: 1;
+}
+
+/* Left menu needs its tilt preserved after boot */
+.menu-left.boot-fade {
+  opacity: 0;
+}
+.menu-left.boot-fade.visible {
+  opacity: 1;
+  transform: perspective(900px) rotateY(4deg);
+}
+
+.panel-right.boot-fade {
+  opacity: 0;
+}
+.panel-right.boot-fade.visible {
+  opacity: 1;
+  transform: perspective(900px) rotateY(-4deg);
+}
+
+::-webkit-scrollbar { width: 0; }

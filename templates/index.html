@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WADAR // SAR TRIANGULATION SYSTEM</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="crt">
+<div class="noise"></div>
+
+<div class="screen">
+  <div class="top-bar boot-hidden" id="boot-clock">
+    <span class="top-clock" id="clock">--:--:--</span>
+    <span class="top-date" id="date">--- -- --- ----</span>
+  </div>
+
+  <div class="status-bar compartment boot-hidden" id="boot-status">
+    <span class="system-id">WADAR // SAR-TRI v2.1</span>
+    <div class="status-group">
+      <span class="status-item">DISH-A: <span class="val" id="dish-a-status">--</span></span>
+      <span class="status-item">DISH-B: <span class="val" id="dish-b-status">--</span></span>
+      <span class="status-item">DEVICES: <span class="val" id="device-count">--</span></span>
+      <span class="status-item">FIX: <span class="val" id="fix-status">--</span></span>
+    </div>
+    <span class="status-item">MODE: TRIANGULATE</span>
+  </div>
+
+  <div class="content">
+    <div class="compartment c-map boot-hidden" id="boot-map">
+      <div class="compartment-label">TRIANGULATION MAP</div>
+      <canvas id="map-canvas"></canvas>
+    </div>
+
+    <div class="compartment c-devices boot-hidden" id="boot-devices">
+      <div class="compartment-label">DETECTED DEVICES</div>
+      <div class="devices-inner">
+        <ul class="device-list" id="device-list"></ul>
+      </div>
+    </div>
+
+    <div class="compartment c-data boot-hidden" id="boot-data">
+      <div class="compartment-label">SIGNAL / POSITION</div>
+      <div class="data-inner">
+        <div class="data-section">
+          <div class="signal-bar-container">
+            <span class="signal-bar-label">RSSI</span>
+            <div class="signal-bar"><div class="signal-bar-fill" id="rssi-bar" style="width: 0%"></div></div>
+            <span class="signal-bar-value" id="rssi-value">--</span>
+          </div>
+          <div class="confidence-row">
+            <span class="signal-bar-label">CONF</span>
+            <div class="confidence-blocks" id="confidence-blocks"></div>
+          </div>
+        </div>
+        <div class="data-section">
+          <div class="fix-grid">
+            <span class="fix-label">LAT</span>
+            <span class="fix-value" id="fix-lat">--</span>
+            <span class="fix-label">LON</span>
+            <span class="fix-value" id="fix-lon">--</span>
+            <span class="fix-label">CEP</span>
+            <span class="fix-value" id="fix-cep">--</span>
+            <span class="fix-label">AGE</span>
+            <span class="fix-value" id="fix-age">--</span>
+            <span class="fix-label">BRG-A</span>
+            <span class="fix-value" id="fix-brg-a">--</span>
+            <span class="fix-label">BRG-B</span>
+            <span class="fix-value" id="fix-brg-b">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar compartment boot-hidden" id="boot-bottom">
+    <span>BRG-A <span class="val" id="bot-brg-a">---.-</span>&deg;</span>
+    <span>WADAR SEARCH &amp; RESCUE</span>
+    <span>BRG-B <span class="val" id="bot-brg-b">---.-</span>&deg;</span>
+  </div>
+</div>
+
+</div>
+
+<script>
+/* ============================================================
+   COLORS (monochrome)
+   ============================================================ */
+var C = {
+  bright:  '#000000',
+  normal:  '#1a1a1a',
+  mid:     '#3a3a3a',
+  dim:     '#707070',
+  faint:   '#999999',
+  ghost:   '#b8b8b8',
+  bg:      '#cbc7c2',
+};
+
+/* ============================================================
+   CLOCK + DATE
+   ============================================================ */
+function updateClock() {
+  var now = new Date();
+  var h = String(now.getUTCHours()).padStart(2, '0');
+  var m = String(now.getUTCMinutes()).padStart(2, '0');
+  var s = String(now.getUTCSeconds()).padStart(2, '0');
+  document.getElementById('clock').textContent = h + ':' + m + ':' + s + 'Z';
+
+  var days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  document.getElementById('date').textContent =
+    days[now.getUTCDay()] + ' ' +
+    String(now.getUTCDate()).padStart(2, '0') + ' ' +
+    months[now.getUTCMonth()] + ' ' +
+    now.getUTCFullYear();
+}
+
+/* ============================================================
+   SIMULATED DATA
+   ============================================================ */
+var DISH_A = { lat: 37.775, lon: -122.420, label: 'DISH-A' };
+var DISH_B = { lat: 37.770, lon: -122.410, label: 'DISH-B' };
+
+var devices = [
+  { mac: 'AA:BB:CC:DD:01:F3', name: 'IPHONE-SARAH',   rssi: -42, bearing_a: 47.3,  bearing_b: 193.7, lat: 37.7735, lon: -122.4155, fix: true },
+  { mac: 'AA:BB:CC:DD:02:A7', name: 'ANDROID-UNKNOWN', rssi: -67, bearing_a: 82.1,  bearing_b: 221.4, lat: 37.7722, lon: -122.4130, fix: true },
+  { mac: 'AA:BB:CC:DD:03:E1', name: 'ESP32-BEACON',    rssi: -81, bearing_a: 125.6, bearing_b: 268.9, lat: null,    lon: null,      fix: false },
+];
+
+var selectedDevice = 0;
+
+/* ============================================================
+   RENDER DEVICE LIST
+   ============================================================ */
+function renderDevices() {
+  var list = document.getElementById('device-list');
+  list.innerHTML = '';
+  devices.forEach(function(d, i) {
+    var li = document.createElement('li');
+    if (i === selectedDevice) li.classList.add('active');
+    li.innerHTML =
+      '<div class="device-row">' +
+        '<span><span class="device-indicator ' + (d.fix ? 'fix' : '') + '"></span><span class="device-mac">' + d.mac + '</span></span>' +
+        '<span class="device-rssi">' + d.rssi + ' dBm</span>' +
+      '</div>' +
+      '<div class="device-name">' + d.name + '</div>';
+    li.addEventListener('click', function() {
+      selectedDevice = i;
+      renderDevices();
+      renderPosition();
+      renderSignal();
+      drawMap();
+    });
+    list.appendChild(li);
+  });
+  document.getElementById('device-count').textContent = devices.length;
+}
+
+/* ============================================================
+   RENDER POSITION FIX
+   ============================================================ */
+function renderPosition() {
+  var d = devices[selectedDevice];
+  document.getElementById('fix-lat').textContent  = d.lat ? d.lat.toFixed(4) + '\u00B0 N' : 'NO FIX';
+  document.getElementById('fix-lon').textContent  = d.lon ? Math.abs(d.lon).toFixed(4) + '\u00B0 W' : 'NO FIX';
+  document.getElementById('fix-cep').textContent  = d.fix ? '\u00B1' + (Math.abs(d.rssi) * 0.3).toFixed(0) + 'm' : '--';
+  document.getElementById('fix-age').textContent  = d.fix ? (Math.random() * 4 + 0.5).toFixed(1) + 's' : '--';
+  document.getElementById('fix-brg-a').textContent = d.bearing_a.toFixed(1) + '\u00B0';
+  document.getElementById('fix-brg-b').textContent = d.bearing_b.toFixed(1) + '\u00B0';
+  document.getElementById('fix-status').textContent = d.fix ? 'LOCKED' : 'NO FIX';
+  document.getElementById('fix-status').style.color = d.fix ? 'var(--p-bright)' : 'var(--p-dim)';
+  if (d.fix) document.getElementById('fix-status').style.fontWeight = '700';
+  document.getElementById('bot-brg-a').textContent = d.bearing_a.toFixed(1);
+  document.getElementById('bot-brg-b').textContent = d.bearing_b.toFixed(1);
+}
+
+/* ============================================================
+   RENDER SIGNAL
+   ============================================================ */
+function renderSignal() {
+  var d = devices[selectedDevice];
+  var pct = Math.max(0, Math.min(100, ((d.rssi + 100) / 70) * 100));
+  var bar = document.getElementById('rssi-bar');
+  bar.style.width = pct + '%';
+  bar.className = 'signal-bar-fill' + (pct > 60 ? ' strong' : '');
+  document.getElementById('rssi-value').textContent = d.rssi + ' dBm';
+
+  var conf = document.getElementById('confidence-blocks');
+  conf.innerHTML = '';
+  var level = d.fix ? Math.ceil(pct / 10) : 0;
+  for (var i = 0; i < 10; i++) {
+    var block = document.createElement('div');
+    block.className = 'confidence-block';
+    if (i < level) {
+      block.classList.add('filled');
+      if (i >= 7) block.classList.add('bright');
+    }
+    conf.appendChild(block);
+  }
+}
+
+/* ============================================================
+   MAP CANVAS
+   ============================================================ */
+var canvas = document.getElementById('map-canvas');
+var ctx = canvas.getContext('2d');
+
+var MAP_BOUNDS = {
+  minLat: 37.765, maxLat: 37.780,
+  minLon: -122.425, maxLon: -122.405,
+};
+
+function latLonToCanvas(lat, lon) {
+  var x = (lon - MAP_BOUNDS.minLon) / (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon) * canvas.width;
+  var y = (1 - (lat - MAP_BOUNDS.minLat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * canvas.height;
+  return { x: x, y: y };
+}
+
+function drawMap() {
+  var dpr = window.devicePixelRatio || 1;
+  var rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.scale(dpr, dpr);
+
+  var w = rect.width;
+  var h = rect.height;
+
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Dot grid
+  ctx.fillStyle = C.faint;
+  var gx = w / 20, gy = h / 16;
+  for (var xi = 0; xi <= 20; xi++)
+    for (var yi = 0; yi <= 16; yi++)
+      ctx.fillRect(Math.round(xi * gx), Math.round(yi * gy), 1, 1);
+
+  // Grid lines
+  ctx.strokeStyle = C.ghost;
+  ctx.lineWidth = 0.5;
+  for (var xi = 0; xi <= 20; xi++) {
+    var xp = Math.round(xi * gx) + 0.5;
+    ctx.beginPath(); ctx.moveTo(xp, 0); ctx.lineTo(xp, h); ctx.stroke();
+  }
+  for (var yi = 0; yi <= 16; yi++) {
+    var yp = Math.round(yi * gy) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, yp); ctx.lineTo(w, yp); ctx.stroke();
+  }
+
+  // Lat/Lon labels
+  ctx.font = '13px "IBM 3270", monospace';
+  ctx.fillStyle = C.faint;
+  for (var i = 0; i <= 4; i++) {
+    var lat = MAP_BOUNDS.minLat + (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat) * (i / 4);
+    var pos = latLonToCanvas(lat, MAP_BOUNDS.minLon);
+    ctx.fillText(lat.toFixed(3), 4, pos.y / dpr - 2);
+  }
+  for (var i = 0; i <= 5; i++) {
+    var lon = MAP_BOUNDS.minLon + (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon) * (i / 5);
+    var pos = latLonToCanvas(MAP_BOUNDS.minLat, lon);
+    ctx.fillText(lon.toFixed(3), pos.x / dpr + 2, h - 4);
+  }
+
+  // Bearing lines + targets
+  var sel = devices[selectedDevice];
+  devices.forEach(function(d, i) {
+    var active = (i === selectedDevice);
+    drawBearingLine(DISH_A, d.bearing_a, active ? C.normal : C.dim, active ? 1 : 0.5, w, h);
+    drawBearingLine(DISH_B, d.bearing_b, active ? C.normal : C.dim, active ? 1 : 0.5, w, h);
+
+    if (d.lat && d.lon) {
+      var pos = latLonToCanvas(d.lat, d.lon);
+      var px = pos.x / dpr, py = pos.y / dpr;
+
+      if (active) {
+        ctx.strokeStyle = C.bright;
+        ctx.lineWidth = 1;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(px - 8, py); ctx.lineTo(px - 3, py);
+        ctx.moveTo(px + 3, py); ctx.lineTo(px + 8, py);
+        ctx.moveTo(px, py - 8); ctx.lineTo(px, py - 3);
+        ctx.moveTo(px, py + 3); ctx.lineTo(px, py + 8);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px, py - 4); ctx.lineTo(px + 4, py);
+        ctx.lineTo(px, py + 4); ctx.lineTo(px - 4, py);
+        ctx.closePath(); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = C.bright;
+        ctx.font = '13px "IBM 3270", monospace';
+        ctx.fillText(d.name, px + 12, py - 5);
+        ctx.fillStyle = C.normal;
+        ctx.font = '12px "IBM 3270", monospace';
+        ctx.fillText(d.mac, px + 12, py + 9);
+      } else {
+        ctx.strokeStyle = C.dim;
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+        ctx.strokeRect(px - 2, py - 2, 4, 4);
+      }
+    }
+  });
+
+  drawDish(DISH_A, dpr);
+  drawDish(DISH_B, dpr);
+
+  // CEP circle
+  if (sel.fix && sel.lat && sel.lon) {
+    var pos = latLonToCanvas(sel.lat, sel.lon);
+    var px = pos.x / dpr, py = pos.y / dpr;
+    var cepDeg = (Math.abs(sel.rssi) * 0.3) / 111000;
+    var cepPx = (cepDeg / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * h;
+    ctx.strokeStyle = C.dim;
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.arc(px, py, cepPx, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function drawBearingLine(dish, bearingDeg, color, lineWidth, w, h) {
+  var dpr = window.devicePixelRatio || 1;
+  var pos = latLonToCanvas(dish.lat, dish.lon);
+  var px = pos.x / dpr, py = pos.y / dpr;
+  var rad = (bearingDeg - 90) * Math.PI / 180;
+  var len = Math.max(w, h) * 2;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(px + Math.cos(rad) * len, py + Math.sin(rad) * len);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawDish(dish, dpr) {
+  var pos = latLonToCanvas(dish.lat, dish.lon);
+  var px = pos.x / dpr, py = pos.y / dpr;
+  ctx.fillStyle = C.normal;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.moveTo(px, py - 6); ctx.lineTo(px + 5, py + 3); ctx.lineTo(px - 5, py + 3);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = C.mid;
+  ctx.font = '13px "IBM 3270", monospace';
+  ctx.fillText(dish.label, px + 8, py + 2);
+}
+
+/* ============================================================
+   BOOT SEQUENCE
+   ============================================================ */
+function bootReveal(id, delay) {
+  return new Promise(function(resolve) {
+    setTimeout(function() {
+      document.getElementById(id).classList.add('boot-visible');
+      resolve();
+    }, delay);
+  });
+}
+
+function runBoot() {
+  var t = 0;
+  var step = 350;
+
+  // 1. Clock appears, starts ticking
+  bootReveal('boot-clock', t).then(function() {
+    updateClock();
+    setInterval(updateClock, 1000);
+  });
+  t += step;
+
+  // 2. Status bar materializes, dish statuses populate
+  bootReveal('boot-status', t).then(function() {
+    setTimeout(function() {
+      document.getElementById('dish-a-status').textContent = 'ONLINE';
+      document.getElementById('dish-a-status').classList.add('online');
+    }, 200);
+    setTimeout(function() {
+      document.getElementById('dish-b-status').textContent = 'ONLINE';
+      document.getElementById('dish-b-status').classList.add('online');
+    }, 500);
+  });
+  t += step;
+
+  // 3. Map panel appears, draws
+  bootReveal('boot-map', t).then(function() {
+    setTimeout(drawMap, 100);
+  });
+  t += step;
+
+  // 4. Devices panel populates
+  bootReveal('boot-devices', t).then(function() {
+    renderDevices();
+    document.getElementById('device-count').textContent = devices.length;
+  });
+  t += step;
+
+  // 5. Signal/Position — last to load
+  bootReveal('boot-data', t).then(function() {
+    renderPosition();
+    renderSignal();
+  });
+  t += step;
+
+  // 7. Bottom bar
+  bootReveal('boot-bottom', t);
+
+  // Start RSSI jitter after full boot
+  setTimeout(function() {
+    setInterval(function() {
+      devices.forEach(function(d) {
+        d.rssi += (Math.random() - 0.5) * 2;
+        d.rssi = Math.round(Math.max(-95, Math.min(-25, d.rssi)));
+      });
+      renderSignal();
+    }, 1500);
+  }, t + 500);
+}
+
+window.addEventListener('resize', drawMap);
+
+/* ============================================================
+   START
+   ============================================================ */
+document.fonts.ready.then(function() {
+  runBoot();
+});
+
+</script>
+</body>
+</html>

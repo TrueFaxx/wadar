@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WADAR // SEARCH & RESCUE</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='landing.css') }}">
+</head>
+<body>
+<div class="crt">
+
+<div class="landing">
+  <div class="header boot-fade" id="b-header">
+    <div class="title">WADAR</div>
+    <div class="subtitle">Search &amp; Rescue Triangulation System</div>
+  </div>
+
+  <div class="main">
+    <div class="menu-left boot-fade" id="b-menu">
+      <a class="menu-item active" href="/wadar">View WADAR</a>
+      <a class="menu-item" href="#">Settings</a>
+      <a class="menu-item" href="#">Developer Config</a>
+    </div>
+
+    <div class="center-art boot-fade" id="b-art">
+      <div class="ascii-scene" id="ascii-scene"></div>
+    </div>
+
+    <div class="panel-right boot-fade" id="b-info">
+      <div class="info-panel">
+        <div class="info-panel-title">Mission Intel</div>
+        <div class="info-row">
+          <span class="label">Date</span>
+          <span class="value" id="info-date">--</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Time</span>
+          <span class="value" id="info-time">--:--:--Z</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Location</span>
+          <span class="value" id="info-loc">--</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Coords</span>
+          <span class="value">37.6879&deg;N</span>
+        </div>
+        <div class="info-row">
+          <span class="label"></span>
+          <span class="value">121.8867&deg;W</span>
+        </div>
+        <div class="info-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;">
+          <span class="label">Status</span>
+          <span class="value" id="info-status">STANDBY</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Dishes</span>
+          <span class="value">2 ONLINE</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Devices</span>
+          <span class="value" id="info-devices">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar boot-fade" id="b-bottom">
+    <div>
+      <span class="action"><span class="key">ENTER</span> Select</span>
+      <span class="action"><span class="key">ESC</span> Back</span>
+    </div>
+    <div>WADAR v2.1 // ZOHO OFFICE, PLEASANTON CA</div>
+  </div>
+</div>
+
+</div>
+
+<script>
+/* BO3-style operator: tactical gear, weapon raised, armored vest, boots.
+   Pose: standing, right arm raised holding rifle diagonally across body,
+   left arm on grip, tactical vest with pouches, knee pads, combat boots. */
+var art = [
+'                            ___  ',
+'                         __|___|/',
+'                        / __ \\| ',
+'                       | /  \\ || ',
+'                       | \\__/ || ',
+'                        \\_--_/ | ',
+'                    ___  |  |_/  ',
+'                   /   |=|__|    ',
+'                  / /| | |  |    ',
+'                 / / | | |  |    ',
+'                / /  | | |  |    ',
+'               / /   | | |  |    ',
+'              / /    | | |__|___ ',
+'             / /     |  \\__   / \\',
+'            /_/      |  _  | |   |',
+'           //    ____|_/ \\_| |   |',
+'          //__  /  __|__    \\|   |',
+'         ///==\\/  |  |  |    |   |',
+'        // |     _|  |  |_   |   |',
+'       //  |    | [--+--] |  |   |',
+'      //   |    | [__+__] |  |   |',
+'     //    |    |  |   |  | /   / ',
+'    /|     |    |__|   |__|/   /  ',
+'   / |     |   /  |     |    /   ',
+'  |  |     |  /   |     |   /    ',
+'  |  |     | / |##|     |  /     ',
+'  |  |_____|/  |##|     | /      ',
+'  |  /     /   |  |     |/       ',
+'  | /  _  /    |  |     /        ',
+'  |/  / \\/     |  |    /|        ',
+'  /  /   \\    /|  |\\  / |        ',
+' /  / \\   \\  / |  | \\/  |        ',
+'/  /   \\   \\/  |  |  |  |        ',
+'| |     |  |   |  |  |  |        ',
+'| |     |  |   |  |  |  |        ',
+'| |     |  |   |__|  |__|        ',
+'|_|     |__|  /____\\ /____\\      ',
+'/___\\  /___\\ |______||______|    ',
+'|=====||=====|                    ',
+];
+
+document.getElementById('ascii-scene').textContent = art.join('\n');
+
+/* Clock */
+function updateInfo() {
+  var now = new Date();
+  var h = String(now.getUTCHours()).padStart(2, '0');
+  var m = String(now.getUTCMinutes()).padStart(2, '0');
+  var s = String(now.getUTCSeconds()).padStart(2, '0');
+  document.getElementById('info-time').textContent = h + ':' + m + ':' + s + 'Z';
+
+  var days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  document.getElementById('info-date').textContent =
+    days[now.getUTCDay()] + ' ' +
+    String(now.getUTCDate()).padStart(2,'0') + ' ' +
+    months[now.getUTCMonth()] + ' ' +
+    now.getUTCFullYear();
+
+  document.getElementById('info-loc').textContent = 'PLEASANTON, CA';
+}
+
+/* Boot */
+var bootOrder = ['b-header', 'b-menu', 'b-art', 'b-info', 'b-bottom'];
+var bootDelay = 200;
+
+document.fonts.ready.then(function() {
+  bootOrder.forEach(function(id, i) {
+    setTimeout(function() {
+      document.getElementById(id).classList.add('visible');
+    }, i * bootDelay);
+  });
+
+  setTimeout(function() {
+    updateInfo();
+    setInterval(updateInfo, 1000);
+    document.getElementById('info-status').textContent = 'OPERATIONAL';
+    document.getElementById('info-devices').textContent = '3 DETECTED';
+  }, bootOrder.length * bootDelay + 200);
+});
+
+/* Keyboard nav */
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    window.location.href = '/wadar';
+  }
+});
+
+</script>
+</body>
+</html>
