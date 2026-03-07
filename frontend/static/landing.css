@@ -12,7 +12,7 @@
   --fg-mid:  #888888;
   --fg-dim:  #555555;
   --fg-faint:#333333;
-  --bg:      #0c0c0c;
+  --bg:      #0a0808;
   --bg-panel:#111111;
   --font:    'IBM 3270', 'Courier New', monospace;
 }
@@ -195,7 +195,38 @@ html, body {
   overflow: hidden;
 }
 
-.tree { color: #2a2a2a; }
+/* Pine needle colors — varying shades of green */
+.n0 { color: #1a3a1a; }
+.n1 { color: #1e4420; }
+.n2 { color: #224e26; }
+.n3 { color: #2a5a2a; }
+.n4 { color: #1a3520; }
+.n5 { color: #16301a; }
+
+/* Trunk colors — warm, visible brown tones */
+.t0 { color: #6b4226; }
+.t1 { color: #7a4e2e; }
+.t2 { color: #8a5a34; }
+.t3 { color: #5e3820; }
+.t4 { color: #946238; }
+
+/* Sunset sky gradient bands */
+.sky0 { color: #5c2240; }
+.sky1 { color: #7a2845; }
+.sky2 { color: #993350; }
+.sky3 { color: #b5405a; }
+.sky4 { color: #cc5544; }
+.sky5 { color: #dd6633; }
+.sky6 { color: #e87830; }
+.sky7 { color: #f09028; }
+.sky8 { color: #f5a020; }
+.sky9 { color: #f8b028; }
+.sky10 { color: #fac040; }
+.sky11 { color: #fcd055; }
+.sky12 { color: #fdd870; }
+.sky13 { color: #fee48a; }
+.sky14 { color: #feeea8; }
+.gnd { color: #2a1a12; }
 
 /* ============================================================
    RIGHT PANEL — tilted inward (left edge closer)

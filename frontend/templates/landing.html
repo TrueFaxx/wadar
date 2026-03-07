@@ -81,17 +81,27 @@
 
 <script>
 /* ============================================================
-   FOREST SCENE — fills entire viewport with trees
-   Canopy at top, trunks below, ground at very bottom.
-   Trees grow upward from the bottom — trunks are tall vertical
-   strokes, canopy is dense foliage at the top.
+   FOREST SCENE — individual pine trees placed across viewport
+   Each tree is a triangle of foliage on a thick trunk.
    ============================================================ */
-var CANOPY_CHARS  = ['{','}','(',')','/','\\','[',']','^','&','%','*','#','@'];
-var BRANCH_CHARS  = ['/','\\','|','{','}','(',')','~','^'];
-var TRUNK_CHARS   = ['|','!','l','I',':',';','|','|','|'];
-var GROUND_CHARS  = ['.','.',',',',','_','_','.','`',"'",'.',','];
+var NEEDLE_CHARS   = ['{','}','(',')','/','\\','^','*','%','&','#'];
+var NEEDLE_CLASSES = ['n0','n1','n2','n3','n4','n5'];
+var TRUNK_CHARS    = ['|','H','#','|','|','|','I','|'];
+var TRUNK_CLASSES  = ['t0','t1','t2','t3','t4'];
+var GROUND_CHARS   = ['.','.',',',',','_','.','`',"'"];
+var SKY_CHARS    = ['.','.',':',':','-','~','`',"'",' ',' ',' '];
+var SKY_DENSE    = ['.',':',';','-','~','=','+','*'];
+var SKY_CLASSES  = ['sky0','sky1','sky2','sky3','sky4','sky5','sky6','sky7','sky8','sky9','sky10','sky11','sky12','sky13','sky14'];
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function skyClass(row, totalRows) {
+  // Map row to a sky color band — top is deep purple, bottom is golden
+  var t = row / totalRows;
+  var idx = Math.floor(t * SKY_CLASSES.length);
+  if (idx >= SKY_CLASSES.length) idx = SKY_CLASSES.length - 1;
+  return SKY_CLASSES[idx];
+}
 
 function buildScene() {
   var el = document.getElementById('ascii-scene');
@@ -103,62 +113,128 @@ function buildScene() {
   var W = Math.ceil(window.innerWidth / charWidth) + 10;
   var totalRows = Math.ceil(window.innerHeight / lineHeight) + 5;
 
-  // Zone boundaries (from top of screen)
-  //  0 .. skyEnd:        mostly empty sky with sparse canopy tips
-  //  skyEnd .. canopyEnd: dense canopy
-  //  canopyEnd .. trunkEnd: trunks + branches
-  //  trunkEnd .. totalRows: ground / roots
-  var skyEnd     = Math.floor(totalRows * 0.08);
-  var canopyEnd  = Math.floor(totalRows * 0.35);
-  var trunkEnd   = Math.floor(totalRows * 0.92);
+  // Generate individual trees with varied sizes and positions
+  // Each tree: { x: center col, topRow: where tip starts, height: total rows, trunkWidth: 2-4 }
+  var trees = [];
+  var numTrees = Math.floor(W / 8) + 5;
+  for (var i = 0; i < numTrees; i++) {
+    var x = Math.floor(Math.random() * W);
+    // Vary tree height — taller trees reach higher on screen
+    var h = Math.floor(Math.random() * 38) + 30; // 30-68 rows tall
+    var canopyH = Math.floor(h * 0.7);
+    var trunkH = h - canopyH;
+    var trunkW = Math.floor(Math.random() * 2) + 3; // 3-5 chars wide
+    // Bottom of tree sits in the lower portion of the screen
+    var bottomRow = totalRows - Math.floor(Math.random() * 6) - 2;
+    var topRow = bottomRow - h;
+    // Max canopy width at base of canopy (widest point)
+    var maxCanopyW = Math.floor(canopyH * 0.8) + 5;
 
+    trees.push({
+      x: x,
+      topRow: topRow,
+      canopyH: canopyH,
+      trunkH: trunkH,
+      trunkW: trunkW,
+      maxCanopyW: maxCanopyW,
+      bottomRow: bottomRow
+    });
+  }
+
+  // Sort trees by topRow so farther (higher) trees render behind
+  trees.sort(function(a, b) { return a.topRow - b.topRow; });
+
+  // Build a 2D grid: each cell is either null (empty) or { type, depth }
+  // We'll just compute per-cell what to render
+  // For performance, precompute tree coverage per row
+
+  // Render row by row
   for (var r = 0; r < totalRows; r++) {
     var div = document.createElement('div');
-    var html = '';
+    var rowChars = new Array(W);
+    for (var c = 0; c < W; c++) rowChars[c] = null;
 
-    for (var c = 0; c < W; c++) {
-      if (r < skyEnd) {
-        // Sky — sparse canopy tips poking up
-        var density = (r / skyEnd) * 0.3; // gets denser toward canopyEnd
-        if (Math.random() < density) {
-          html += '<span class="tree">' + pick(CANOPY_CHARS) + '</span>';
-        } else {
-          html += ' ';
-        }
-      } else if (r < canopyEnd) {
-        // Dense canopy — thick foliage
-        var t = (r - skyEnd) / (canopyEnd - skyEnd); // 0..1 through canopy
-        var density = 0.5 + t * 0.4; // 50% to 90% fill
-        if (Math.random() < density) {
-          html += '<span class="tree">' + pick(CANOPY_CHARS) + '</span>';
-        } else {
-          html += ' ';
-        }
-      } else if (r < trunkEnd) {
-        // Trunk zone — vertical strokes with occasional branches
-        var t = (r - canopyEnd) / (trunkEnd - canopyEnd);
-        // Trunks are columns — higher chance if we're on a "trunk column"
-        // Create ~15 trunk positions spread across width
-        var trunkSpacing = Math.floor(W / 15);
-        var nearTrunk = (c % trunkSpacing) < 2;
-        var branchChance = nearTrunk ? 0.6 : 0.04;
-        // Branches more common near top of trunk zone
-        var branchExtra = (1 - t) * 0.08;
+    // Paint each tree onto this row
+    for (var ti = 0; ti < trees.length; ti++) {
+      var t = trees[ti];
+      if (r < t.topRow || r > t.bottomRow) continue;
 
-        if (nearTrunk && Math.random() < 0.7) {
-          html += '<span class="tree">' + pick(TRUNK_CHARS) + '</span>';
-        } else if (Math.random() < branchChance + branchExtra) {
-          html += '<span class="tree">' + pick(BRANCH_CHARS) + '</span>';
-        } else {
-          html += ' ';
+      var rowInTree = r - t.topRow;
+
+      if (rowInTree < t.canopyH) {
+        // Canopy zone — pine tree triangle shape
+        // Width grows linearly from tip (1-2) to max at bottom of canopy
+        var progress = rowInTree / t.canopyH; // 0 at tip, 1 at base
+        // Pine trees have a jagged/layered look — add some waviness
+        var layerWave = Math.sin(rowInTree * 1.2) * 1.5;
+        var halfW = Math.floor((progress * t.maxCanopyW) / 2 + layerWave);
+        if (halfW < 1) halfW = 1;
+
+        for (var dc = -halfW; dc <= halfW; dc++) {
+          var col = t.x + dc;
+          if (col >= 0 && col < W) {
+            // Edges are less dense — sparse at the border of the triangle
+            var edgeDist = halfW > 0 ? Math.abs(dc) / halfW : 0;
+            var density = 0.9 - edgeDist * 0.5;
+            if (Math.random() < density) {
+              rowChars[col] = 'N'; // needle
+            }
+          }
         }
       } else {
-        // Ground — scattered low detail
-        if (Math.random() < 0.4) {
-          html += '<span class="tree">' + pick(GROUND_CHARS) + '</span>';
-        } else {
-          html += ' ';
+        // Trunk zone — thick vertical trunk
+        var halfT = Math.floor(t.trunkW / 2);
+        for (var dc = -halfT; dc <= halfT; dc++) {
+          var col = t.x + dc;
+          if (col >= 0 && col < W) {
+            rowChars[col] = 'T'; // trunk
+          }
         }
+      }
+    }
+
+    // Ground layer at the very bottom
+    var isGround = r >= totalRows - 6;
+    var cls = isGround ? 'gnd' : skyClass(r, totalRows);
+
+    // Build HTML from rowChars
+    var html = '';
+    var c = 0;
+    while (c < W) {
+      var ch = rowChars[c];
+      if (ch === 'N') {
+        var start = c;
+        while (c < W && rowChars[c] === 'N') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="' + pick(NEEDLE_CLASSES) + '">' + pick(NEEDLE_CHARS) + '</span>';
+        }
+      } else if (ch === 'T') {
+        var start = c;
+        while (c < W && rowChars[c] === 'T') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="' + pick(TRUNK_CLASSES) + '">' + pick(TRUNK_CHARS) + '</span>';
+        }
+      } else {
+        // Sky or ground fill
+        if (isGround) {
+          if (Math.random() < 0.4) {
+            html += '<span class="gnd">' + pick(GROUND_CHARS) + '</span>';
+          } else {
+            html += '<span class="gnd"> </span>';
+          }
+        } else {
+          // Sky — denser near the horizon (bottom), sparser at top
+          var t = r / totalRows;
+          var skyDensity = 0.15 + t * 0.5; // 15% at top, 65% near bottom
+          if (Math.random() < skyDensity) {
+            // Near horizon, use denser chars
+            var skyChar = (t > 0.6) ? pick(SKY_DENSE) : pick(SKY_CHARS);
+            html += '<span class="' + cls + '">' + skyChar + '</span>';
+          } else {
+            html += '<span class="' + cls + '"> </span>';
+          }
+        }
+        c++;
       }
     }
 
