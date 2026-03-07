@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WADAR Sensors</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 20px; font-size: 1.4em; color: #888; }
+  .sensors { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+  .sensor-card {
+    background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+    padding: 20px; min-width: 320px; flex: 1; max-width: 500px;
+  }
+  .sensor-card.error { border-color: #633; }
+  .sensor-card.ok { border-color: #363; }
+  .card-title { font-size: 1.1em; margin-bottom: 12px; color: #aaa; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #633; }
+  .dot.ok { background: #3b3; }
+  .heading-display { font-size: 3em; text-align: center; margin: 16px 0; color: #fff; }
+  .heading-label { text-align: center; color: #666; font-size: 0.9em; margin-bottom: 12px; }
+  .data-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #222; }
+  .data-label { color: #888; }
+  .data-value { color: #ddd; }
+  .cal-row { display: flex; gap: 12px; margin-top: 12px; justify-content: center; }
+  .cal-item { text-align: center; }
+  .cal-item .label { font-size: 0.75em; color: #666; }
+  .cal-item .value {
+    font-size: 1.4em; font-weight: bold;
+    width: 32px; height: 32px; line-height: 32px;
+    border-radius: 4px; display: block; margin: 4px auto 0;
+  }
+  .cal-0 { background: #411; color: #f66; }
+  .cal-1 { background: #431; color: #fa3; }
+  .cal-2 { background: #441; color: #fd3; }
+  .cal-3 { background: #141; color: #3f3; }
+  .error-msg { text-align: center; color: #f66; padding: 20px; }
+  .compass {
+    width: 120px; height: 120px; margin: 10px auto;
+    position: relative; border: 2px solid #444; border-radius: 50%;
+  }
+  .needle {
+    position: absolute; top: 50%; left: 50%;
+    width: 2px; height: 50px; background: #f44;
+    transform-origin: top center; border-radius: 1px;
+  }
+  .compass-n { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); color: #f44; font-size: 0.8em; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>WADAR Sensor Dashboard</h1>
+<div class="sensors" id="sensors"></div>
+
+<script>
+const PIES = [
+  { name: "Pi 4 (wadar1)", host: "192.168.1.101:8080" },
+  { name: "Pi 3 (wadar2)", host: "192.168.1.103:8080" },
+];
+
+function calClass(v) { return "cal-" + v; }
+
+function cardinalDir(deg) {
+  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function createCard(pi, data) {
+  const card = document.createElement("div");
+  card.className = "sensor-card " + (data.error ? "error" : "ok");
+
+  const title = document.createElement("div");
+  title.className = "card-title";
+  const dot = document.createElement("span");
+  dot.className = data.error ? "dot" : "dot ok";
+  title.appendChild(dot);
+  title.appendChild(document.createTextNode(pi.name));
+  card.appendChild(title);
+
+  if (data.error) {
+    const err = document.createElement("div");
+    err.className = "error-msg";
+    err.textContent = data.error;
+    card.appendChild(err);
+    return card;
+  }
+
+  const h = data.heading ?? 0;
+
+  const compass = document.createElement("div");
+  compass.className = "compass";
+  const n = document.createElement("span");
+  n.className = "compass-n";
+  n.textContent = "N";
+  compass.appendChild(n);
+  const needle = document.createElement("div");
+  needle.className = "needle";
+  needle.style.transform = "rotate(" + h + "deg)";
+  compass.appendChild(needle);
+  card.appendChild(compass);
+
+  const hdg = document.createElement("div");
+  hdg.className = "heading-display";
+  hdg.textContent = h.toFixed(1) + "\u00B0";
+  card.appendChild(hdg);
+
+  const dir = document.createElement("div");
+  dir.className = "heading-label";
+  dir.textContent = cardinalDir(h);
+  card.appendChild(dir);
+
+  [["Roll", data.roll], ["Pitch", data.pitch]].forEach(function(pair) {
+    const row = document.createElement("div");
+    row.className = "data-row";
+    const lbl = document.createElement("span");
+    lbl.className = "data-label";
+    lbl.textContent = pair[0];
+    const val = document.createElement("span");
+    val.className = "data-value";
+    val.textContent = pair[1].toFixed(1) + "\u00B0";
+    row.appendChild(lbl);
+    row.appendChild(val);
+    card.appendChild(row);
+  });
+
+  const calRow = document.createElement("div");
+  calRow.className = "cal-row";
+  [["SYS", data.cal_sys], ["GYRO", data.cal_gyro], ["ACCEL", data.cal_accel], ["MAG", data.cal_mag]].forEach(function(pair) {
+    const item = document.createElement("div");
+    item.className = "cal-item";
+    const lbl = document.createElement("span");
+    lbl.className = "label";
+    lbl.textContent = pair[0];
+    const val = document.createElement("span");
+    val.className = "value " + calClass(pair[1]);
+    val.textContent = pair[1];
+    item.appendChild(lbl);
+    item.appendChild(val);
+    calRow.appendChild(item);
+  });
+  card.appendChild(calRow);
+
+  return card;
+}
+
+async function fetchSensor(pi) {
+  try {
+    const r = await fetch("http://" + pi.host + "/", { signal: AbortSignal.timeout(2000) });
+    return await r.json();
+  } catch (e) {
+    return { error: "offline" };
+  }
+}
+
+async function update() {
+  const results = await Promise.all(PIES.map(fetchSensor));
+  const container = document.getElementById("sensors");
+  container.replaceChildren();
+  PIES.forEach(function(pi, i) {
+    container.appendChild(createCard(pi, results[i]));
+  });
+}
+
+setInterval(update, 200);
+update();
+</script>
+</body>
+</html>
