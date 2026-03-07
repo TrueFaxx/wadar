@@ -477,71 +477,80 @@ function buildScene() {
 buildScene();
 
 /* ============================================================
-   FLASHLIGHT BEAM — sweeps left and right from helmet
+   FLASHLIGHT BEAM — ASCII characters sweeping left/right
+   Renders into #beam-layer as a cone of bright chars.
    ============================================================ */
-var beamCanvas = document.getElementById('beam-canvas');
-var beamCtx = beamCanvas.getContext('2d');
+var beamLayer = document.getElementById('beam-layer');
+var BEAM_CHARS = ['.','*',':','+','=','~','-'];
+var BEAM_CLS = ['bm0','bm1','bm2','bm3','bm4','bm5'];
+
+// Scene dimensions (recalculate to match buildScene)
+var beamFontSize = 7;
+var beamLineH = beamFontSize * 1.05;
+var beamCharW = beamFontSize * 0.6;
+var beamCols = Math.ceil(window.innerWidth / beamCharW) + 10;
+var beamRows = Math.ceil(window.innerHeight / beamLineH) + 5;
+
 var beamAngle = 0;
 var beamDir = 1;
-var beamSpeed = 0.008;
-var beamMaxAngle = 0.6; // radians, ~35 degrees each side
+var beamSpeed = 0.04;
+var beamMaxAngle = 1.2; // wide sweep across entire screen
 
-function resizeBeam() {
-  beamCanvas.width = window.innerWidth;
-  beamCanvas.height = window.innerHeight;
-}
-resizeBeam();
-window.addEventListener('resize', resizeBeam);
+// Origin of beam — helmet light position (matches buildCharacter)
+var beamOriginRow = Math.floor(beamRows * 0.42) - 22 + 6 - 1; // helmetCY
+var beamOriginCol = Math.floor(beamCols / 2);
 
-function drawBeam() {
-  var w = beamCanvas.width;
-  var h = beamCanvas.height;
-  beamCtx.clearRect(0, 0, w, h);
-
-  // Light origin — center of helmet, roughly 30% from top
-  var originX = w / 2;
-  var originY = h * 0.22;
-
-  // Beam direction — sweeps left/right
+function renderBeam() {
   beamAngle += beamSpeed * beamDir;
   if (beamAngle > beamMaxAngle) { beamAngle = beamMaxAngle; beamDir = -1; }
   if (beamAngle < -beamMaxAngle) { beamAngle = -beamMaxAngle; beamDir = 1; }
 
-  // Draw a cone of light
-  var beamLen = Math.max(w, h) * 1.5;
-  var spread = 0.12; // half-angle of beam cone in radians
+  // Build a 2D array for the beam cone
+  var spread = 0.45; // half-angle of cone — wide beam
+  var angle = beamAngle; // 0 = straight down, negative = left, positive = right
+  var beamLen = beamRows; // max reach in rows (beam goes downward)
 
-  var angle = -Math.PI / 2 + beamAngle; // -PI/2 is straight up, we want mostly upward
-  // Actually the beam should go upward and outward from the helmet
-  // Let's make it point slightly upward from horizontal
-  angle = -0.3 + beamAngle; // mostly horizontal, slight upward tilt
+  var lines = [];
+  for (var r = 0; r < beamRows; r++) {
+    var row = '';
+    for (var c = 0; c < beamCols; c++) {
+      var dr = r - beamOriginRow;
+      var dc = (c - beamOriginCol) * 0.5; // compress horizontal (chars are narrower than tall)
+      var dist = Math.sqrt(dr * dr + dc * dc);
 
-  var leftAngle = angle - spread;
-  var rightAngle = angle + spread;
+      if (dist < 3 || dr < 2) { row += ' '; continue; } // skip origin + above
 
-  var grad = beamCtx.createRadialGradient(originX, originY, 0, originX, originY, beamLen * 0.6);
-  grad.addColorStop(0, 'rgba(255, 238, 136, 0.15)');
-  grad.addColorStop(0.3, 'rgba(255, 238, 136, 0.06)');
-  grad.addColorStop(1, 'rgba(255, 238, 136, 0)');
+      // Angle from origin to this cell — atan2(dc, dr) so 0 = straight down
+      var cellAngle = Math.atan2(dc, dr);
 
-  beamCtx.fillStyle = grad;
-  beamCtx.beginPath();
-  beamCtx.moveTo(originX, originY);
-  beamCtx.lineTo(
-    originX + Math.cos(leftAngle) * beamLen,
-    originY + Math.sin(leftAngle) * beamLen
-  );
-  beamCtx.lineTo(
-    originX + Math.cos(rightAngle) * beamLen,
-    originY + Math.sin(rightAngle) * beamLen
-  );
-  beamCtx.closePath();
-  beamCtx.fill();
+      // Check if inside beam cone
+      var diff = Math.abs(cellAngle - angle);
+      if (diff > Math.PI) diff = 2 * Math.PI - diff;
 
-  requestAnimationFrame(drawBeam);
+      if (diff < spread && dist < beamLen) {
+        // Inside beam — brightness fades with distance and angle offset
+        var distT = dist / beamLen;
+        var angleT = diff / spread;
+        var brightness = (1 - distT) * (1 - angleT * angleT);
+
+        if (brightness > 0.02 && Math.random() < brightness * 0.8) {
+          var clsIdx = Math.min(Math.floor((1 - brightness) * BEAM_CLS.length), BEAM_CLS.length - 1);
+          row += '<span class="' + BEAM_CLS[clsIdx] + '">' + pick(BEAM_CHARS) + '</span>';
+        } else {
+          row += ' ';
+        }
+      } else {
+        row += ' ';
+      }
+    }
+    lines.push('<div>' + row + '</div>');
+  }
+
+  beamLayer.innerHTML = lines.join('');
+  setTimeout(renderBeam, 80);
 }
 
-drawBeam();
+renderBeam();
 
 /* Animate fire tips */
 function animateFire() {
