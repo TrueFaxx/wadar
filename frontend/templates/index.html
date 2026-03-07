@@ -19,10 +19,8 @@
   <div class="status-bar compartment boot-hidden" id="boot-status">
     <span class="system-id">WADAR // SAR-TRI v2.1</span>
     <div class="status-group">
-      <span class="status-item">DISH-A: <span class="val" id="dish-a-status">--</span></span>
-      <span class="status-item">DISH-B: <span class="val" id="dish-b-status">--</span></span>
-      <span class="status-item">DEVICES: <span class="val" id="device-count">--</span></span>
-      <span class="status-item">FIX: <span class="val" id="fix-status">--</span></span>
+      <span class="status-item">DISHES: <span class="val" id="dish-count-status">0</span></span>
+      <span class="status-item">DEVICES: <span class="val" id="device-count">0</span></span>
     </div>
     <span class="status-item">MODE: TRIANGULATE</span>
   </div>
@@ -41,43 +39,17 @@
     </div>
 
     <div class="compartment c-data boot-hidden" id="boot-data">
-      <div class="compartment-label">SIGNAL / POSITION</div>
-      <div class="data-inner">
-        <div class="data-section">
-          <div class="signal-bar-container">
-            <span class="signal-bar-label">RSSI</span>
-            <div class="signal-bar"><div class="signal-bar-fill" id="rssi-bar" style="width: 0%"></div></div>
-            <span class="signal-bar-value" id="rssi-value">--</span>
-          </div>
-          <div class="confidence-row">
-            <span class="signal-bar-label">CONF</span>
-            <div class="confidence-blocks" id="confidence-blocks"></div>
-          </div>
-        </div>
-        <div class="data-section">
-          <div class="fix-grid">
-            <span class="fix-label">LAT</span>
-            <span class="fix-value" id="fix-lat">--</span>
-            <span class="fix-label">LON</span>
-            <span class="fix-value" id="fix-lon">--</span>
-            <span class="fix-label">CEP</span>
-            <span class="fix-value" id="fix-cep">--</span>
-            <span class="fix-label">AGE</span>
-            <span class="fix-value" id="fix-age">--</span>
-            <span class="fix-label">BRG-A</span>
-            <span class="fix-value" id="fix-brg-a">--</span>
-            <span class="fix-label">BRG-B</span>
-            <span class="fix-value" id="fix-brg-b">--</span>
-          </div>
-        </div>
+      <div class="compartment-label">DISH STATUS</div>
+      <div class="data-inner" id="dish-panel">
+        <div class="dish-none">NO DISHES AVAILABLE AT THE MOMENT</div>
       </div>
     </div>
   </div>
 
   <div class="bottom-bar compartment boot-hidden" id="boot-bottom">
-    <span>BRG-A <span class="val" id="bot-brg-a">---.-</span>&deg;</span>
+    <span>DISHES: <span class="val" id="bot-dish-count">0</span></span>
     <span>WADAR SEARCH &amp; RESCUE</span>
-    <span>BRG-B <span class="val" id="bot-brg-b">---.-</span>&deg;</span>
+    <span>DEVICES: <span class="val" id="bot-dev-count">0</span></span>
   </div>
 </div>
 
@@ -152,48 +124,35 @@ function renderDevices() {
 }
 
 /* ============================================================
-   RENDER POSITION FIX
+   RENDER DISHES
    ============================================================ */
-function renderPosition() {
-  if (devices.length === 0) return;
-  var d = devices[selectedDevice];
-  document.getElementById('fix-lat').textContent  = d.lat ? d.lat.toFixed(4) + '\u00B0 N' : 'NO FIX';
-  document.getElementById('fix-lon').textContent  = d.lon ? Math.abs(d.lon).toFixed(4) + '\u00B0 W' : 'NO FIX';
-  document.getElementById('fix-cep').textContent  = d.fix ? '\u00B1' + (Math.abs(d.rssi) * 0.3).toFixed(0) + 'm' : '--';
-  document.getElementById('fix-age').textContent  = d.fix ? (Math.random() * 4 + 0.5).toFixed(1) + 's' : '--';
-  document.getElementById('fix-brg-a').textContent = d.bearing_a.toFixed(1) + '\u00B0';
-  document.getElementById('fix-brg-b').textContent = d.bearing_b.toFixed(1) + '\u00B0';
-  document.getElementById('fix-status').textContent = d.fix ? 'LOCKED' : 'NO FIX';
-  document.getElementById('fix-status').style.color = d.fix ? 'var(--p-bright)' : 'var(--p-dim)';
-  if (d.fix) document.getElementById('fix-status').style.fontWeight = '700';
-  document.getElementById('bot-brg-a').textContent = d.bearing_a.toFixed(1);
-  document.getElementById('bot-brg-b').textContent = d.bearing_b.toFixed(1);
-}
+function renderDishes() {
+  var panel = document.getElementById('dish-panel');
+  var keys = Object.keys(dishes);
+  var dishCount = keys.length;
 
-/* ============================================================
-   RENDER SIGNAL
-   ============================================================ */
-function renderSignal() {
-  if (devices.length === 0) return;
-  var d = devices[selectedDevice];
-  var pct = Math.max(0, Math.min(100, ((d.rssi + 100) / 70) * 100));
-  var bar = document.getElementById('rssi-bar');
-  bar.style.width = pct + '%';
-  bar.className = 'signal-bar-fill' + (pct > 60 ? ' strong' : '');
-  document.getElementById('rssi-value').textContent = d.rssi + ' dBm';
+  document.getElementById('bot-dish-count').textContent = dishCount;
+  document.getElementById('bot-dev-count').textContent = devices.length;
 
-  var conf = document.getElementById('confidence-blocks');
-  conf.innerHTML = '';
-  var level = d.fix ? Math.ceil(pct / 10) : 0;
-  for (var i = 0; i < 10; i++) {
-    var block = document.createElement('div');
-    block.className = 'confidence-block';
-    if (i < level) {
-      block.classList.add('filled');
-      if (i >= 7) block.classList.add('bright');
-    }
-    conf.appendChild(block);
+  if (dishCount === 0) {
+    panel.innerHTML = '<div class="dish-none">NO DISHES AVAILABLE AT THE MOMENT</div>';
+    return;
   }
+
+  var html = '';
+  keys.forEach(function(k) {
+    var d = dishes[k];
+    html +=
+      '<div class="data-section">' +
+        '<div class="fix-grid">' +
+          '<span class="fix-label">ID</span>' +
+          '<span class="fix-value">' + d.id + '</span>' +
+          '<span class="fix-label">DEGREES</span>' +
+          '<span class="fix-value">' + (d.degrees !== undefined ? d.degrees + '\u00B0' : '--') + '</span>' +
+        '</div>' +
+      '</div>';
+  });
+  panel.innerHTML = html;
 }
 
 /* ============================================================
@@ -343,12 +302,9 @@ function runBoot() {
   });
   t += step;
 
-  // 5. Signal/Position
+  // 5. Dish status
   bootReveal('boot-data', t).then(function() {
-    if (devices.length > 0) {
-      renderPosition();
-      renderSignal();
-    }
+    renderDishes();
   });
   t += step;
 
@@ -365,24 +321,8 @@ window.addEventListener('resize', drawMap);
    DISH STATUS
    ============================================================ */
 function updateDishStatus() {
-  var a = dishes['A'] || dishes['a'];
-  var b = dishes['B'] || dishes['b'];
-  var elA = document.getElementById('dish-a-status');
-  var elB = document.getElementById('dish-b-status');
-  if (a) {
-    elA.textContent = 'ONLINE (' + a.degrees + '\u00B0)';
-    elA.classList.add('online');
-  } else {
-    elA.textContent = 'OFFLINE';
-    elA.classList.remove('online');
-  }
-  if (b) {
-    elB.textContent = 'ONLINE (' + b.degrees + '\u00B0)';
-    elB.classList.add('online');
-  } else {
-    elB.textContent = 'OFFLINE';
-    elB.classList.remove('online');
-  }
+  var count = Object.keys(dishes).length;
+  document.getElementById('dish-count-status').textContent = count;
 }
 
 /* ============================================================
@@ -393,15 +333,12 @@ function handleState(data) {
     devices = data.devices;
     if (selectedDevice >= devices.length) selectedDevice = 0;
     renderDevices();
-    if (devices.length > 0) {
-      renderPosition();
-      renderSignal();
-    }
     drawMap();
   }
   if (data.dishes) {
     dishes = data.dishes;
     updateDishStatus();
+    renderDishes();
   }
 }
 
