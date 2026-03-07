@@ -1,5 +1,7 @@
 """BNO055 9-DOF IMU driver using smbus2 over I2C."""
 
+import json
+import os
 import time
 from smbus2 import SMBus
 
@@ -21,6 +23,7 @@ REG_SYS_STATUS = 0x39
 REG_SYS_ERR = 0x3A
 REG_CALIB_STAT = 0x35
 REG_TEMP = 0x34
+REG_CALIB_DATA = 0x55  # 22 bytes of calibration data
 
 # Data registers
 REG_EUL_HEADING = 0x1A  # 2 bytes, LSB first
@@ -59,9 +62,10 @@ POWER_NORMAL = 0x00
 class BNO055:
     I2C_RETRIES = 5
 
-    def __init__(self, bus_num=1, address=BNO055_ADDRESS):
+    def __init__(self, bus_num=1, address=BNO055_ADDRESS, heading_offset=0.0):
         self.bus = SMBus(bus_num)
         self.address = address
+        self.heading_offset = heading_offset
         self._verify_chip_id()
         self._configure()
 
@@ -144,7 +148,8 @@ class BNO055:
         if roll >= 0x8000: roll -= 0x10000
         if pitch >= 0x8000: pitch -= 0x10000
         # Euler angles are in units of 1/16 degree
-        return (heading / 16.0, roll / 16.0, pitch / 16.0)
+        heading = (heading / 16.0 + self.heading_offset) % 360
+        return (heading, roll / 16.0, pitch / 16.0)
 
     def quaternion(self):
         """Returns (w, x, y, z) quaternion. Values are unitless, scaled by 2^14."""
@@ -190,6 +195,39 @@ class BNO055:
         status = self.bus.read_byte_data(self.address, REG_SYS_STATUS)
         error = self.bus.read_byte_data(self.address, REG_SYS_ERR)
         return (status, error)
+
+    def get_calibration(self):
+        """Read 22-byte calibration profile from sensor."""
+        self.bus.write_byte_data(self.address, REG_OPR_MODE, MODE_CONFIG)
+        time.sleep(0.025)
+        data = self._i2c_read(REG_CALIB_DATA, 22)
+        self.bus.write_byte_data(self.address, REG_OPR_MODE, MODE_NDOF)
+        time.sleep(0.02)
+        return data
+
+    def set_calibration(self, data):
+        """Write 22-byte calibration profile to sensor."""
+        self.bus.write_byte_data(self.address, REG_OPR_MODE, MODE_CONFIG)
+        time.sleep(0.025)
+        for i, val in enumerate(data):
+            self.bus.write_byte_data(self.address, REG_CALIB_DATA + i, val)
+        self.bus.write_byte_data(self.address, REG_OPR_MODE, MODE_NDOF)
+        time.sleep(0.02)
+
+    def save_calibration(self, path="calibration.json"):
+        """Save calibration profile to file."""
+        data = self.get_calibration()
+        with open(path, "w") as f:
+            json.dump(data, f)
+
+    def load_calibration(self, path="calibration.json"):
+        """Load calibration profile from file. Returns True if loaded."""
+        if not os.path.exists(path):
+            return False
+        with open(path) as f:
+            data = json.load(f)
+        self.set_calibration(data)
+        return True
 
     def close(self):
         self.bus.close()
