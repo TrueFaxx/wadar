@@ -10,6 +10,11 @@
 <div class="crt">
 
 <div class="landing">
+  <!-- ASCII SCENE — full background layer -->
+  <div class="scene-bg boot-fade" id="b-art">
+    <div class="ascii-scene" id="ascii-scene"></div>
+  </div>
+
   <div class="header boot-fade" id="b-header">
     <div class="title">WADAR</div>
     <div class="subtitle">Search &amp; Rescue Triangulation System</div>
@@ -22,9 +27,7 @@
       <a class="menu-item" href="#">Developer Config</a>
     </div>
 
-    <div class="center-art boot-fade" id="b-art">
-      <div class="ascii-scene" id="ascii-scene"></div>
-    </div>
+    <div style="flex:1"></div>
 
     <div class="panel-right boot-fade" id="b-info">
       <div class="info-panel">
@@ -77,52 +80,94 @@
 </div>
 
 <script>
-/* BO3-style operator: tactical gear, weapon raised, armored vest, boots.
-   Pose: standing, right arm raised holding rifle diagonally across body,
-   left arm on grip, tactical vest with pouches, knee pads, combat boots. */
-var art = [
-'                            ___  ',
-'                         __|___|/',
-'                        / __ \\| ',
-'                       | /  \\ || ',
-'                       | \\__/ || ',
-'                        \\_--_/ | ',
-'                    ___  |  |_/  ',
-'                   /   |=|__|    ',
-'                  / /| | |  |    ',
-'                 / / | | |  |    ',
-'                / /  | | |  |    ',
-'               / /   | | |  |    ',
-'              / /    | | |__|___ ',
-'             / /     |  \\__   / \\',
-'            /_/      |  _  | |   |',
-'           //    ____|_/ \\_| |   |',
-'          //__  /  __|__    \\|   |',
-'         ///==\\/  |  |  |    |   |',
-'        // |     _|  |  |_   |   |',
-'       //  |    | [--+--] |  |   |',
-'      //   |    | [__+__] |  |   |',
-'     //    |    |  |   |  | /   / ',
-'    /|     |    |__|   |__|/   /  ',
-'   / |     |   /  |     |    /   ',
-'  |  |     |  /   |     |   /    ',
-'  |  |     | / |##|     |  /     ',
-'  |  |_____|/  |##|     | /      ',
-'  |  /     /   |  |     |/       ',
-'  | /  _  /    |  |     /        ',
-'  |/  / \\/     |  |    /|        ',
-'  /  /   \\    /|  |\\  / |        ',
-' /  / \\   \\  / |  | \\/  |        ',
-'/  /   \\   \\/  |  |  |  |        ',
-'| |     |  |   |  |  |  |        ',
-'| |     |  |   |  |  |  |        ',
-'| |     |  |   |__|  |__|        ',
-'|_|     |__|  /____\\ /____\\      ',
-'/___\\  /___\\ |______||______|    ',
-'|=====||=====|                    ',
-];
+/* ============================================================
+   FOREST SCENE — fills entire viewport with trees
+   Canopy at top, trunks below, ground at very bottom.
+   Trees grow upward from the bottom — trunks are tall vertical
+   strokes, canopy is dense foliage at the top.
+   ============================================================ */
+var CANOPY_CHARS  = ['{','}','(',')','/','\\','[',']','^','&','%','*','#','@'];
+var BRANCH_CHARS  = ['/','\\','|','{','}','(',')','~','^'];
+var TRUNK_CHARS   = ['|','!','l','I',':',';','|','|','|'];
+var GROUND_CHARS  = ['.','.',',',',','_','_','.','`',"'",'.',','];
 
-document.getElementById('ascii-scene').textContent = art.join('\n');
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function buildScene() {
+  var el = document.getElementById('ascii-scene');
+  el.innerHTML = '';
+
+  var fontSize = 7;
+  var lineHeight = fontSize * 1.05;
+  var charWidth = fontSize * 0.6;
+  var W = Math.ceil(window.innerWidth / charWidth) + 10;
+  var totalRows = Math.ceil(window.innerHeight / lineHeight) + 5;
+
+  // Zone boundaries (from top of screen)
+  //  0 .. skyEnd:        mostly empty sky with sparse canopy tips
+  //  skyEnd .. canopyEnd: dense canopy
+  //  canopyEnd .. trunkEnd: trunks + branches
+  //  trunkEnd .. totalRows: ground / roots
+  var skyEnd     = Math.floor(totalRows * 0.08);
+  var canopyEnd  = Math.floor(totalRows * 0.35);
+  var trunkEnd   = Math.floor(totalRows * 0.92);
+
+  for (var r = 0; r < totalRows; r++) {
+    var div = document.createElement('div');
+    var html = '';
+
+    for (var c = 0; c < W; c++) {
+      if (r < skyEnd) {
+        // Sky — sparse canopy tips poking up
+        var density = (r / skyEnd) * 0.3; // gets denser toward canopyEnd
+        if (Math.random() < density) {
+          html += '<span class="tree">' + pick(CANOPY_CHARS) + '</span>';
+        } else {
+          html += ' ';
+        }
+      } else if (r < canopyEnd) {
+        // Dense canopy — thick foliage
+        var t = (r - skyEnd) / (canopyEnd - skyEnd); // 0..1 through canopy
+        var density = 0.5 + t * 0.4; // 50% to 90% fill
+        if (Math.random() < density) {
+          html += '<span class="tree">' + pick(CANOPY_CHARS) + '</span>';
+        } else {
+          html += ' ';
+        }
+      } else if (r < trunkEnd) {
+        // Trunk zone — vertical strokes with occasional branches
+        var t = (r - canopyEnd) / (trunkEnd - canopyEnd);
+        // Trunks are columns — higher chance if we're on a "trunk column"
+        // Create ~15 trunk positions spread across width
+        var trunkSpacing = Math.floor(W / 15);
+        var nearTrunk = (c % trunkSpacing) < 2;
+        var branchChance = nearTrunk ? 0.6 : 0.04;
+        // Branches more common near top of trunk zone
+        var branchExtra = (1 - t) * 0.08;
+
+        if (nearTrunk && Math.random() < 0.7) {
+          html += '<span class="tree">' + pick(TRUNK_CHARS) + '</span>';
+        } else if (Math.random() < branchChance + branchExtra) {
+          html += '<span class="tree">' + pick(BRANCH_CHARS) + '</span>';
+        } else {
+          html += ' ';
+        }
+      } else {
+        // Ground — scattered low detail
+        if (Math.random() < 0.4) {
+          html += '<span class="tree">' + pick(GROUND_CHARS) + '</span>';
+        } else {
+          html += ' ';
+        }
+      }
+    }
+
+    div.innerHTML = html;
+    el.appendChild(div);
+  }
+}
+
+buildScene();
 
 /* Clock */
 function updateInfo() {
@@ -144,7 +189,7 @@ function updateInfo() {
 }
 
 /* Boot */
-var bootOrder = ['b-header', 'b-menu', 'b-art', 'b-info', 'b-bottom'];
+var bootOrder = ['b-art', 'b-header', 'b-menu', 'b-info', 'b-bottom'];
 var bootDelay = 200;
 
 document.fonts.ready.then(function() {
@@ -162,10 +207,25 @@ document.fonts.ready.then(function() {
   }, bootOrder.length * bootDelay + 200);
 });
 
-/* Keyboard nav */
+/* Keyboard navigation */
+var menuItems = document.querySelectorAll('.menu-item');
+var menuIdx = 0;
+
+function setActiveMenu(idx) {
+  menuItems.forEach(function(item) { item.classList.remove('active'); });
+  menuIdx = idx;
+  menuItems[menuIdx].classList.add('active');
+}
+
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    window.location.href = '/wadar';
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    setActiveMenu(Math.min(menuIdx + 1, menuItems.length - 1));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    setActiveMenu(Math.max(menuIdx - 1, 0));
+  } else if (e.key === 'Enter') {
+    menuItems[menuIdx].click();
   }
 });
 

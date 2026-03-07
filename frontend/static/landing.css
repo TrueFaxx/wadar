@@ -75,6 +75,7 @@ html, body {
   padding: 30px 40px;
   position: relative;
   perspective: 1200px;
+  z-index: 2;
 }
 
 /* ============================================================
@@ -83,6 +84,8 @@ html, body {
 .header {
   flex-shrink: 0;
   margin-bottom: 10px;
+  z-index: 10;
+  position: relative;
 }
 
 .title {
@@ -115,23 +118,23 @@ html, body {
    LEFT MENU — tilted inward (right edge closer)
    ============================================================ */
 .menu-left {
-  width: 280px;
+  width: 380px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  padding-top: 30px;
+  padding-top: 40px;
   z-index: 10;
-  transform: perspective(900px) rotateY(4deg);
+  transform: perspective(600px) rotateY(8deg);
   transform-origin: left center;
 }
 
 .menu-item {
   position: relative;
   display: block;
-  padding: 10px 20px 10px 16px;
-  margin-bottom: 2px;
-  font-size: 16px;
+  padding: 14px 24px 14px 20px;
+  margin-bottom: 4px;
+  font-size: 20px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--fg-mid);
@@ -168,58 +171,62 @@ html, body {
 }
 
 /* ============================================================
-   CENTER — ASCII ART
+   ASCII SCENE — full-width background layer behind everything
    ============================================================ */
-.center-art {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  position: relative;
+.scene-bg {
+  position: fixed;
+  inset: 0;
   overflow: hidden;
-  padding-bottom: 20px;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .ascii-scene {
-  font-size: 9px;
-  line-height: 1.1;
-  color: var(--fg-dim);
+  font-size: 7px;
+  line-height: 1.05;
+  color: var(--fg-faint);
   white-space: pre;
-  text-align: center;
-  position: relative;
   user-select: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
 }
+
+.tree { color: #2a2a2a; }
 
 /* ============================================================
    RIGHT PANEL — tilted inward (left edge closer)
    ============================================================ */
 .panel-right {
-  width: 280px;
+  width: 380px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  padding-top: 30px;
+  padding-top: 40px;
   z-index: 10;
-  transform: perspective(900px) rotateY(-4deg);
+  transform: perspective(600px) rotateY(-8deg);
   transform-origin: right center;
 }
 
 .info-panel {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--fg-faint);
-  padding: 12px 16px;
+  padding: 16px 20px;
   width: 100%;
   transform: skewX(-2deg);
 }
 
 .info-panel-title {
-  font-size: 10px;
+  font-size: 13px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--fg-dim);
-  margin-bottom: 8px;
-  padding-bottom: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--fg-faint);
 }
 
@@ -227,18 +234,18 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 4px 0;
+  padding: 5px 0;
 }
 
 .info-row .label {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--fg-dim);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .info-row .value {
-  font-size: 13px;
+  font-size: 16px;
   color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
@@ -252,9 +259,10 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding-top: 16px;
-  border-top: 1px solid var(--fg-faint);
   font-size: 11px;
   color: var(--fg-dim);
+  z-index: 10;
+  position: relative;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -290,7 +298,7 @@ html, body {
 }
 .menu-left.boot-fade.visible {
   opacity: 1;
-  transform: perspective(900px) rotateY(4deg);
+  transform: perspective(600px) rotateY(8deg);
 }
 
 .panel-right.boot-fade {
@@ -298,7 +306,7 @@ html, body {
 }
 .panel-right.boot-fade.visible {
   opacity: 1;
-  transform: perspective(900px) rotateY(-4deg);
+  transform: perspective(600px) rotateY(-8deg);
 }
 
 ::-webkit-scrollbar { width: 0; }
