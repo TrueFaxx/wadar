@@ -98,7 +98,7 @@ html, body {
 
 .subtitle {
   font-size: 14px;
-  color: var(--fg-dim);
+  color: #dddddd;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   margin-top: 4px;
@@ -203,10 +203,52 @@ html, body {
 .fc3 { color: #ffaa22; }
 .fc4 { color: #ffcc44; }
 
-/* Character silhouette */
-.char-h { color: #0e0e0e; }  /* helmet — near black, densest */
-.char-v { color: #2a2a2a; }  /* visor line — slightly lighter detail */
-.char-b { color: #111111; }  /* body/head — dark silhouette */
+/* Character — firefighter uniform */
+/* Helmet — dark red shades */
+.helm0 { color: #6b1a1a; }
+.helm1 { color: #7a2222; }
+.helm2 { color: #8b2a2a; }
+.helm3 { color: #5c1414; }
+/* Helmet brim — darker, almost black-red */
+.brim0 { color: #3a0e0e; }
+.brim1 { color: #4a1414; }
+/* Visor — reflective dark */
+.visor { color: #1a1a2a; }
+/* Helmet light — bright yellow-white */
+.hlight { color: #ffee88; }
+
+/* Beam character overlay */
+#beam-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+/* Beam character colors — bright to dim with distance */
+.bm0 { color: rgba(255, 240, 140, 0.7); }
+.bm1 { color: rgba(255, 235, 120, 0.5); }
+.bm2 { color: rgba(255, 230, 100, 0.35); }
+.bm3 { color: rgba(255, 225, 90, 0.2); }
+.bm4 { color: rgba(255, 220, 80, 0.12); }
+.bm5 { color: rgba(255, 215, 70, 0.07); }
+/* Glasses — dark tinted lenses */
+.glasses { color: #1a1a22; }
+/* Face/skin */
+.face0 { color: #8a6a50; }
+.face1 { color: #7a5e48; }
+.face2 { color: #9a7458; }
+/* Neck/shadow */
+.neck0 { color: #5a4030; }
+/* Turnout coat — brown */
+.coat0 { color: #5a4228; }
+.coat1 { color: #644c30; }
+.coat2 { color: #4e3a22; }
+.coat3 { color: #6e5638; }
+/* Reflective stripes on coat */
+.stripe { color: #eeee99; }
+/* SCBA tank / dark gear on back */
+.gear0 { color: #2a2a2a; }
+.gear1 { color: #333333; }
 
 /* Pine needle colors — varying shades of green */
 .n0 { color: #1a3a1a; }
