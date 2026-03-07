@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WADAR // SIGNAL MONITOR</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  .signals-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    overflow-y: auto;
+    padding: var(--gap);
+  }
+  .signals-content::-webkit-scrollbar { width: 4px; }
+  .signals-content::-webkit-scrollbar-track { background: var(--bg); }
+  .signals-content::-webkit-scrollbar-thumb { background: var(--p-faint); }
+
+  .sig-card {
+    background: var(--bg-panel);
+    border: var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 120px;
+    position: relative;
+  }
+  .sig-card-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--p-faint);
+    background: var(--bg-panel);
+    z-index: 1;
+  }
+  .sig-card-hdr .sig-mac {
+    font-size: 13px;
+    color: var(--p-bright);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .sig-card-hdr .sig-name {
+    font-size: 11px;
+    color: var(--p-dim);
+    margin-left: 10px;
+  }
+  .sig-card-hdr .sig-dbm {
+    font-size: 16px;
+    color: var(--p-bright);
+    font-weight: 700;
+  }
+  .sig-card-hdr .sig-dbm-unit {
+    font-size: 11px;
+    color: var(--p-dim);
+    font-weight: 400;
+  }
+  .sig-graph-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 80px;
+  }
+  .sig-graph-wrap canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .sig-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--p-dim);
+    font-size: 14px;
+    letter-spacing: 0.1em;
+  }
+
+  .sig-status-bar {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 8px;
+    border-top: var(--border);
+    border-bottom: var(--border);
+    background: var(--bg-panel);
+    font-size: 11px;
+    color: var(--p-dim);
+    letter-spacing: 0.08em;
+  }
+  .sig-status-bar .val { color: var(--p-bright); font-weight: 700; }
+
+  .sig-nav {
+    padding: 3px 8px;
+    border-bottom: var(--border);
+    background: var(--bg-panel);
+    font-size: 11px;
+    color: var(--p-dim);
+  }
+  .sig-nav a {
+    color: var(--p-mid);
+    text-decoration: none;
+    letter-spacing: 0.08em;
+  }
+  .sig-nav a:hover { color: var(--p-bright); }
+</style>
+</head>
+<body>
+<div class="crt">
+<div class="noise"></div>
+
+<div class="screen">
+  <div class="top-bar boot-hidden" id="boot-clock">
+    <span class="top-clock" id="clock">--:--:--</span>
+    <span class="top-date" id="date">--- -- --- ----</span>
+  </div>
+
+  <div class="sig-nav boot-hidden" id="boot-nav">
+    <a href="/wadar">&larr; BACK TO WADAR</a>
+  </div>
+
+  <div class="sig-status-bar boot-hidden" id="boot-status">
+    <span>WADAR // SIGNAL MONITOR</span>
+    <span>DEVICES: <span class="val" id="dev-count">0</span></span>
+    <span>WS: <span class="val" id="ws-status">--</span></span>
+  </div>
+
+  <div class="signals-content" id="signals-content">
+    <div class="sig-empty" id="sig-empty">NO DEVICES DETECTED</div>
+  </div>
+</div>
+
+</div>
+
+<script>
+var devices = [];
+var graphs = {};
+var ws = null;
+var HISTORY_LEN = 120;
+
+function updateClock() {
+  var now = new Date();
+  var h = String(now.getUTCHours()).padStart(2, '0');
+  var m = String(now.getUTCMinutes()).padStart(2, '0');
+  var s = String(now.getUTCSeconds()).padStart(2, '0');
+  document.getElementById('clock').textContent = h + ':' + m + ':' + s + 'Z';
+  var days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  document.getElementById('date').textContent =
+    days[now.getUTCDay()] + ' ' +
+    String(now.getUTCDate()).padStart(2,'0') + ' ' +
+    months[now.getUTCMonth()] + ' ' +
+    now.getUTCFullYear();
+}
+
+function buildCards() {
+  var container = document.getElementById('signals-content');
+  var empty = document.getElementById('sig-empty');
+  document.getElementById('dev-count').textContent = devices.length;
+
+  if (devices.length === 0) {
+    container.innerHTML = '<div class="sig-empty" id="sig-empty">NO DEVICES DETECTED</div>';
+    graphs = {};
+    return;
+  }
+
+  var existingMacs = {};
+  devices.forEach(function(d) { existingMacs[d.mac] = true; });
+
+  Object.keys(graphs).forEach(function(mac) {
+    if (!existingMacs[mac]) {
+      var el = document.getElementById('sig-' + mac.replace(/:/g, ''));
+      if (el) el.remove();
+      delete graphs[mac];
+    }
+  });
+
+  devices.forEach(function(d) {
+    var id = 'sig-' + d.mac.replace(/:/g, '');
+    var card = document.getElementById(id);
+
+    if (!graphs[d.mac]) {
+      graphs[d.mac] = { history: [], canvas: null, ctx: null };
+    }
+
+    graphs[d.mac].history.push(d.rssi);
+    if (graphs[d.mac].history.length > HISTORY_LEN) {
+      graphs[d.mac].history.shift();
+    }
+
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'sig-card';
+      card.id = id;
+      card.innerHTML =
+        '<div class="sig-card-hdr">' +
+          '<span><span class="sig-mac">' + d.mac + '</span><span class="sig-name">' + (d.name || '') + '</span></span>' +
+          '<span class="sig-dbm" id="dbm-' + id + '">' + d.rssi + ' <span class="sig-dbm-unit">dBm</span></span>' +
+        '</div>' +
+        '<div class="sig-graph-wrap"><canvas id="cv-' + id + '"></canvas></div>';
+      container.appendChild(card);
+      var cv = document.getElementById('cv-' + id);
+      graphs[d.mac].canvas = cv;
+      graphs[d.mac].ctx = cv.getContext('2d');
+    } else {
+      var dbmEl = document.getElementById('dbm-' + id);
+      if (dbmEl) dbmEl.innerHTML = d.rssi + ' <span class="sig-dbm-unit">dBm</span>';
+    }
+  });
+
+  if (document.getElementById('sig-empty')) {
+    document.getElementById('sig-empty').remove();
+  }
+}
+
+function drawGraphs() {
+  var C_BG = '#cbc7c2';
+  var C_GRID = '#b8b8b8';
+  var C_LINE = '#1a1a1a';
+  var C_FILL = 'rgba(26,26,26,0.08)';
+  var C_LABEL = '#707070';
+
+  devices.forEach(function(d) {
+    var g = graphs[d.mac];
+    if (!g || !g.canvas) return;
+
+    var cv = g.canvas;
+    var ctx = g.ctx;
+    var dpr = window.devicePixelRatio || 1;
+    var rect = cv.parentElement.getBoundingClientRect();
+
+    cv.width = rect.width * dpr;
+    cv.height = rect.height * dpr;
+    cv.style.width = rect.width + 'px';
+    cv.style.height = rect.height + 'px';
+    ctx.scale(dpr, dpr);
+
+    var w = rect.width;
+    var h = rect.height;
+    var hist = g.history;
+
+    ctx.fillStyle = C_BG;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = C_GRID;
+    ctx.lineWidth = 0.5;
+    var dbmLevels = [-30, -50, -70, -90];
+    ctx.font = '9px "IBM 3270", monospace';
+    ctx.fillStyle = C_LABEL;
+    dbmLevels.forEach(function(db) {
+      var y = dbmToY(db, h);
+      ctx.beginPath();
+      ctx.setLineDash([2, 3]);
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(db + '', 3, y - 2);
+    });
+
+    if (hist.length < 2) return;
+
+    var step = w / (HISTORY_LEN - 1);
+
+    ctx.beginPath();
+    ctx.moveTo((hist.length - 1) * step, h);
+    for (var i = hist.length - 1; i >= 0; i--) {
+      var x = i * step;
+      var y = dbmToY(hist[i], h);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = C_FILL;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.strokeStyle = C_LINE;
+    ctx.lineWidth = 1.5;
+    for (var i = 0; i < hist.length; i++) {
+      var x = i * step;
+      var y = dbmToY(hist[i], h);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    var lastY = dbmToY(hist[hist.length - 1], h);
+    var lastX = (hist.length - 1) * step;
+    ctx.fillStyle = C_LINE;
+    ctx.fillRect(lastX - 2, lastY - 2, 5, 5);
+  });
+
+  requestAnimationFrame(drawGraphs);
+}
+
+function dbmToY(dbm, h) {
+  var minDbm = -95;
+  var maxDbm = -20;
+  var t = (dbm - minDbm) / (maxDbm - minDbm);
+  t = Math.max(0, Math.min(1, t));
+  return h - t * (h - 10) - 5;
+}
+
+function handleState(data) {
+  if (data.devices) {
+    devices = data.devices;
+    buildCards();
+  }
+}
+
+function connectWS() {
+  ws = new WebSocket('ws://localhost:5005');
+  ws.onopen = function() {
+    ws.send(JSON.stringify({data: 'connect', id: 'SIGNALS-' + Date.now()}));
+    document.getElementById('ws-status').textContent = 'CONNECTED';
+  };
+  ws.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.response === 'CONNECTED') return;
+      handleState(data);
+    } catch(err) {}
+  };
+  ws.onclose = function() {
+    ws = null;
+    document.getElementById('ws-status').textContent = 'OFFLINE';
+    setTimeout(connectWS, 2000);
+  };
+  ws.onerror = function() { ws.close(); };
+}
+
+function bootReveal(id, delay) {
+  return new Promise(function(resolve) {
+    setTimeout(function() {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('boot-visible');
+      resolve();
+    }, delay);
+  });
+}
+
+document.fonts.ready.then(function() {
+  var t = 0;
+  var step = 250;
+  bootReveal('boot-clock', t).then(function() {
+    updateClock();
+    setInterval(updateClock, 1000);
+  });
+  t += step;
+  bootReveal('boot-nav', t);
+  t += step;
+  bootReveal('boot-status', t);
+  t += step;
+  setTimeout(function() {
+    connectWS();
+    drawGraphs();
+  }, t);
+});
+</script>
+</body>
+</html>
