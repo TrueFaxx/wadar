@@ -195,6 +195,19 @@ html, body {
   overflow: hidden;
 }
 
+/* Fire tip colors */
+.fire { color: #ff6600; }
+.fc0 { color: #ff4400; }
+.fc1 { color: #ff6600; }
+.fc2 { color: #ff8800; }
+.fc3 { color: #ffaa22; }
+.fc4 { color: #ffcc44; }
+
+/* Character silhouette */
+.char-h { color: #0e0e0e; }  /* helmet — near black, densest */
+.char-v { color: #2a2a2a; }  /* visor line — slightly lighter detail */
+.char-b { color: #111111; }  /* body/head — dark silhouette */
+
 /* Pine needle colors — varying shades of green */
 .n0 { color: #1a3a1a; }
 .n1 { color: #1e4420; }
@@ -244,7 +257,7 @@ html, body {
 }
 
 .info-panel {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.55);
   border: 1px solid var(--fg-faint);
   padding: 16px 20px;
   width: 100%;
