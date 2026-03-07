@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WADAR</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#000;color:#ccc;
+    font-family:Tahoma,'MS Sans Serif',Arial,sans-serif;
+    font-size:11px;
+    height:100vh;overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  /* navbar */
+  .nav{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    padding:4px 8px;
+    border-bottom:1px solid #333;
+    flex-shrink:0;
+  }
+  .nav-btn{
+    background:transparent;
+    border:none;
+    color:#888;
+    font-family:Tahoma,'MS Sans Serif',Arial,sans-serif;
+    font-size:9px;
+    cursor:pointer;
+    white-space:pre;
+    line-height:1.1;
+    text-align:center;
+    padding:0;
+  }
+  .nav-btn:hover{color:#fff}
+  .nav-btn.active{color:#fff}
+  .nav-title{
+    margin-left:auto;
+    color:#555;
+    font-size:10px;
+  }
+  .wrap{
+    display:flex;flex:1;overflow:hidden;
+  }
+  /* left: radar */
+  .radar-side{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    position:relative;
+  }
+  canvas{display:block;}
+  /* right: text panel */
+  .panel{
+    width:300px;
+    border-left:1px solid #333;
+    display:flex;flex-direction:column;
+    overflow:hidden;
+  }
+  .hdr{
+    padding:5px 10px;
+    border-bottom:1px solid #333;
+    font-size:10px;
+    color:#666;
+    display:flex;justify-content:space-between;
+  }
+  .hdr span:last-child{color:#ccc;}
+  .targets{
+    flex:1;overflow-y:auto;padding:4px 10px;
+  }
+  .targets::-webkit-scrollbar{width:4px}
+  .targets::-webkit-scrollbar-thumb{background:#333}
+  .t-row{
+    border-bottom:1px solid #1a1a1a;
+    padding:4px 0;
+    line-height:1.5;
+    font-size:11px;
+  }
+  .t-row .mac{color:#ccc}
+  .t-row .dim{color:#555;font-size:10px}
+  .t-row .sig{float:right}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="nav-btn active">+------+
+| Scan |
++------+</button>
+  <button class="nav-btn">+---------+
+| Targets |
++---------+</button>
+  <button class="nav-btn">+--------+
+| Config |
++--------+</button>
+  <button class="nav-btn">+--------+
+| Dishes |
++--------+</button>
+  <button class="nav-btn">+--------+
+| Export |
++--------+</button>
+  <span class="nav-title">WADAR v2.7</span>
+</div>
+
+<div class="wrap">
+
+  <div class="radar-side">
+    <canvas id="r"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="hdr"><span>TARGETS</span><span id="cnt">0</span></div>
+    <div class="targets" id="tgt"></div>
+  </div>
+
+</div>
+
+<script>
+// ── persistence ──
+const STORAGE_KEY='wadar_devices';
+const DEFAULT_DEV=[
+  {mac:"4A:3B:FC:12:8E:01",type:"MOBILE",sig:-32,a:45,d:.35,ch:6,f:"2.4G"},
+  {mac:"7C:D1:C3:88:AF:22",type:"LAPTOP",sig:-55,a:130,d:.60,ch:36,f:"5G"},
+  {mac:"B0:BE:76:A1:0D:F3",type:"IOT",sig:-71,a:210,d:.78,ch:1,f:"2.4G"},
+  {mac:"F8:1D:78:5E:3C:44",type:"TABLET",sig:-44,a:290,d:.45,ch:11,f:"2.4G"},
+  {mac:"00:14:22:CD:E5:55",type:"AP",sig:-28,a:170,d:.20,ch:44,f:"5G"},
+  {mac:"DC:A6:32:77:1B:66",type:"UNKN",sig:-83,a:330,d:.92,ch:6,f:"2.4G"},
+  {mac:"E4:5F:01:9A:BB:77",type:"MOBILE",sig:-60,a:75,d:.55,ch:48,f:"5G"},
+  {mac:"A0:C9:A0:3D:EE:88",type:"LAPTOP",sig:-47,a:250,d:.50,ch:40,f:"5G"},
+];
+
+function loadDevices(){
+  try{
+    const s=localStorage.getItem(STORAGE_KEY);
+    if(s){return JSON.parse(s);}
+  }catch(e){}
+  return JSON.parse(JSON.stringify(DEFAULT_DEV));
+}
+function saveDevices(){
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(DEV));}catch(e){}
+}
+
+const DEV=loadDevices();
+
+// ── canvas setup ──
+const c=document.getElementById('r'),x=c.getContext('2d');
+let sz,cx,cy,rad,sweep=0;
+const blips=DEV.map(d=>({dev:d,alpha:0}));
+
+function fit(){
+  const p=c.parentElement;
+  sz=Math.min(p.clientWidth,p.clientHeight,400)-20;
+  c.width=sz;c.height=sz;
+  cx=sz/2;cy=sz/2;rad=sz/2-2;
+}
+fit();window.onresize=fit;
+
+function pol(a,d){
+  const r=(a-90)*Math.PI/180;
+  return[cx+Math.cos(r)*d*rad, cy+Math.sin(r)*d*rad];
+}
+
+function draw(){
+  x.clearRect(0,0,sz,sz);
+
+  // rings
+  x.strokeStyle='#1a1a1a';x.lineWidth=1;
+  for(let i=1;i<=4;i++){x.beginPath();x.arc(cx,cy,rad/4*i,0,Math.PI*2);x.stroke();}
+
+  // cross
+  x.beginPath();
+  x.moveTo(cx,cy-rad);x.lineTo(cx,cy+rad);
+  x.moveTo(cx-rad,cy);x.lineTo(cx+rad,cy);
+  x.stroke();
+
+  // outer ring
+  x.strokeStyle='#333';
+  x.beginPath();x.arc(cx,cy,rad,0,Math.PI*2);x.stroke();
+
+  // ticks
+  for(let i=0;i<360;i+=30){
+    const r=(i-90)*Math.PI/180;
+    x.beginPath();
+    x.moveTo(cx+Math.cos(r)*(rad-8),cy+Math.sin(r)*(rad-8));
+    x.lineTo(cx+Math.cos(r)*rad,cy+Math.sin(r)*rad);
+    x.stroke();
+  }
+
+  // sweep line
+  const sr=(sweep-90)*Math.PI/180;
+  x.save();x.translate(cx,cy);x.rotate(sr);
+  x.beginPath();x.moveTo(0,0);x.lineTo(0,-rad);
+  x.strokeStyle='#ccc';x.lineWidth=1;x.stroke();
+  x.restore();
+
+  // blips
+  blips.forEach(b=>{
+    const diff=Math.abs(((sweep-b.dev.a)+360)%360);
+    if(diff<3||diff>357) b.alpha=1;
+    if(b.alpha<=0)return;
+    const[bx,by]=pol(b.dev.a,b.dev.d);
+    x.fillStyle=`rgba(200,200,200,${b.alpha})`;
+    x.fillRect(bx-2,by-2,4,4);
+    if(b.alpha>.4){
+      x.font='9px Tahoma,sans-serif';
+      x.fillStyle=`rgba(200,200,200,${b.alpha*.7})`;
+      x.fillText(b.dev.type,bx+6,by+3);
+    }
+    b.alpha-=0.004;
+  });
+
+  // center
+  x.fillStyle='#ccc';x.fillRect(cx-1,cy-1,3,3);
+
+  sweep=(sweep+0.6)%360;
+  requestAnimationFrame(draw);
+}
+draw();
+
+// ── target list ──
+function renderList(){
+  document.getElementById('cnt').textContent=DEV.length;
+  document.getElementById('tgt').innerHTML=DEV.map(d=>
+    `<div class="t-row"><span class="mac">${d.mac}</span><span class="sig">${d.sig}dBm</span><br><span class="dim">${d.type} · CH${d.ch} · ${d.f} · ${d.a}°</span></div>`
+  ).join('');
+}
+renderList();
+
+// drift
+setInterval(()=>{
+  DEV.forEach(d=>{
+    d.a=(d.a+(Math.random()-.5)*2+360)%360;
+    d.d=Math.max(.05,Math.min(.95,d.d+(Math.random()-.5)*.02));
+    d.sig=Math.max(-95,Math.min(-15,d.sig+Math.floor((Math.random()-.5)*4)));
+  });
+  saveDevices();
+  renderList();
+},3000);
+</script>
+</body>
+</html>
