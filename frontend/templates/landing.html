@@ -13,6 +13,7 @@
   <!-- ASCII SCENE — full background layer -->
   <div class="scene-bg boot-fade" id="b-art">
     <div class="ascii-scene" id="ascii-scene"></div>
+    <div class="ascii-scene" id="beam-layer"></div>
   </div>
 
   <div class="header boot-fade" id="b-header">
@@ -112,57 +113,70 @@ function skyClass(row, totalRows) {
    All defined as ellipses with center, radii, and row range.
    Painted onto grid after trees. Body extends off-screen bottom.
    ============================================================ */
-function buildCharacter(W, totalRows, grid) {
-  var cx = Math.floor(W / 2); // center x
+function paintEllipse(grid, cx, cy, rx, ry, val, W, totalRows, edgeFade) {
+  for (var r = cy - ry; r <= cy + ry; r++) {
+    if (r < 0 || r >= totalRows) continue;
+    var dy = (r - cy) / ry;
+    var xExt = Math.floor(rx * Math.sqrt(Math.max(0, 1 - dy * dy)));
+    for (var dc = -xExt; dc <= xExt; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        if (edgeFade) {
+          var ed = Math.abs(dc) / (xExt || 1);
+          if (ed > 0.93 && Math.random() > 0.5) continue;
+        }
+        grid[r][col] = val;
+      }
+    }
+  }
+}
 
-  // --- BODY (shoulders) — wide, extends off bottom ---
-  // Trapezoid: narrow at neck, widens to shoulders, goes off screen
+function buildCharacter(W, totalRows, grid) {
+  var cx = Math.floor(W / 2);
+
+  // Key positions
+  var headCY = Math.floor(totalRows * 0.42);
+  var headRX = 28;
+  var headRY = 22;
   var bodyTopRow = Math.floor(totalRows * 0.58);
-  var bodyNeckW = 18; // half-width at neck
-  var bodyShoulderW = 65; // half-width at full shoulder
-  var bodyWidenRows = 25; // rows to go from neck to full width
+  var helmetCY = headCY - headRY + 6;
+  var helmetRX = 36;
+  var helmetRY = 10;
+
+  // === 1. BODY — turnout coat (painted first, bottom layer) ===
+  var bodyNeckW = 18;
+  var bodyShoulderW = 65;
+  var bodyWidenRows = 25;
+  // Reflective stripe rows (relative to bodyTopRow)
+  var stripe1 = 10;
+  var stripe2 = 22;
 
   for (var r = bodyTopRow; r < totalRows; r++) {
     var rowInBody = r - bodyTopRow;
     var t = Math.min(rowInBody / bodyWidenRows, 1);
-    // Ease out for natural shoulder curve
     var ease = 1 - (1 - t) * (1 - t);
     var halfW = Math.floor(bodyNeckW + (bodyShoulderW - bodyNeckW) * ease);
+
+    // Determine what part of coat this row is
+    var isStripe = (rowInBody >= stripe1 && rowInBody < stripe1 + 2) ||
+                   (rowInBody >= stripe2 && rowInBody < stripe2 + 2);
 
     for (var dc = -halfW; dc <= halfW; dc++) {
       var col = cx + dc;
       if (col >= 0 && col < W) {
-        // Slight edge fade
         var edgeDist = Math.abs(dc) / halfW;
-        if (edgeDist < 0.95 || Math.random() < 0.6) {
-          grid[r][col] = 'C'; // character
+        if (edgeDist > 0.95 && Math.random() > 0.6) continue;
+
+        if (isStripe) {
+          grid[r][col] = 'S'; // reflective stripe
+        } else {
+          grid[r][col] = 'K'; // coat
         }
       }
     }
   }
 
-  // --- HEAD — large oval ---
-  var headCY = Math.floor(totalRows * 0.42);
-  var headRX = 28; // horizontal radius
-  var headRY = 22; // vertical radius
-
-  for (var r = headCY - headRY; r <= headCY + headRY; r++) {
-    if (r < 0 || r >= totalRows) continue;
-    var dy = (r - headCY) / headRY;
-    var xExtent = Math.floor(headRX * Math.sqrt(Math.max(0, 1 - dy * dy)));
-
-    for (var dc = -xExtent; dc <= xExtent; dc++) {
-      var col = cx + dc;
-      if (col >= 0 && col < W) {
-        var edgeDist = Math.abs(dc) / (xExtent || 1);
-        if (edgeDist < 0.92 || Math.random() < 0.5) {
-          grid[r][col] = 'C';
-        }
-      }
-    }
-  }
-
-  // --- NECK connecting head to body ---
+  // === 2. NECK — shadowed skin ===
   var neckTop = headCY + headRY - 3;
   var neckBot = bodyTopRow + 2;
   var neckHalfW = 12;
@@ -171,51 +185,46 @@ function buildCharacter(W, totalRows, grid) {
     for (var dc = -neckHalfW; dc <= neckHalfW; dc++) {
       var col = cx + dc;
       if (col >= 0 && col < W) {
-        grid[r][col] = 'C';
+        grid[r][col] = 'n'; // neck
       }
     }
   }
 
-  // --- HELMET — wider flat oval sitting on top of head ---
-  var helmetCY = headCY - headRY + 6; // overlaps top of head
-  var helmetRX = 36; // wider than head
-  var helmetRY = 10; // flatter
+  // === 4. HEAD — face/skin ===
+  paintEllipse(grid, cx, headCY, headRX, headRY, 'F', W, totalRows, true);
 
+  // === 5. HELMET — dark red, on top of everything ===
+  // Main dome
   for (var r = helmetCY - helmetRY; r <= helmetCY + helmetRY; r++) {
     if (r < 0 || r >= totalRows) continue;
     var dy = (r - helmetCY) / helmetRY;
-    var xExtent = Math.floor(helmetRX * Math.sqrt(Math.max(0, 1 - dy * dy)));
+    var xExt = Math.floor(helmetRX * Math.sqrt(Math.max(0, 1 - dy * dy)));
+    if (dy > 0) xExt = Math.floor(xExt * 1.15);
 
-    // Flatten the bottom — make helmet brim wider at bottom half
-    if (dy > 0) {
-      xExtent = Math.floor(xExtent * 1.15);
-    }
-
-    for (var dc = -xExtent; dc <= xExtent; dc++) {
+    for (var dc = -xExt; dc <= xExt; dc++) {
       var col = cx + dc;
       if (col >= 0 && col < W) {
-        grid[r][col] = 'H'; // helmet (denser fill)
+        grid[r][col] = 'H'; // helmet
       }
     }
   }
 
-  // --- HELMET BRIM — a thin wide band at the bottom of helmet ---
+  // Brim — wider, darker band
   var brimRow = helmetCY + helmetRY - 2;
   var brimHalfW = Math.floor(helmetRX * 1.2);
   for (var dr = 0; dr < 3; dr++) {
     var r = brimRow + dr;
     if (r < 0 || r >= totalRows) continue;
-    // Brim tapers slightly
     var w = brimHalfW - dr * 3;
     for (var dc = -w; dc <= w; dc++) {
       var col = cx + dc;
       if (col >= 0 && col < W) {
-        grid[r][col] = 'H';
+        grid[r][col] = 'B'; // brim
       }
     }
   }
 
-  // --- VISOR LINE — horizontal detail across helmet ---
+  // Visor band
   var visorRow = helmetCY + 2;
   var visorHalfW = Math.floor(helmetRX * 0.7);
   for (var dr = 0; dr < 2; dr++) {
@@ -224,11 +233,29 @@ function buildCharacter(W, totalRows, grid) {
       for (var dc = -visorHalfW; dc <= visorHalfW; dc++) {
         var col = cx + dc;
         if (col >= 0 && col < W) {
-          grid[r][col] = 'V'; // visor detail
+          grid[r][col] = 'V'; // visor
         }
       }
     }
   }
+
+  // === 6. HELMET LIGHT — large bright block centered on helmet ===
+  var lightCY = helmetCY - 1;
+  var lightHalfW = 6;
+  var lightHalfH = 3;
+  for (var dr = -lightHalfH; dr <= lightHalfH; dr++) {
+    var r = lightCY + dr;
+    if (r < 0 || r >= totalRows) continue;
+    var w = lightHalfW - Math.abs(dr);
+    if (w < 3) w = 3;
+    for (var dc = -w; dc <= w; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        grid[r][col] = 'L'; // light
+      }
+    }
+  }
+
 }
 
 function buildScene() {
@@ -301,7 +328,7 @@ function buildScene() {
             var edgeDist = halfW > 0 ? Math.abs(dc) / halfW : 0;
             var density = 0.9 - edgeDist * 0.5;
             if (Math.random() < density) {
-              grid[r][col] = isTip ? 'F' : 'N';
+              grid[r][col] = isTip ? 'f' : 'N';
             }
           }
         }
@@ -332,30 +359,82 @@ function buildScene() {
     var c = 0;
     while (c < W) {
       var ch = grid[r][c];
+      var HELM_CLS = ['helm0','helm1','helm2','helm3'];
+      var BRIM_CLS = ['brim0','brim1'];
+      var FACE_CLS = ['face0','face1','face2'];
+      var COAT_CLS = ['coat0','coat1','coat2','coat3'];
+      var GEAR_CLS = ['gear0','gear1'];
+
       if (ch === 'H') {
-        // Helmet — densest fill
         var start = c;
         while (c < W && grid[r][c] === 'H') c++;
         for (var j = 0; j < c - start; j++) {
-          html += '<span class="char-h">' + pick(CHAR_DENSE) + '</span>';
+          html += '<span class="' + pick(HELM_CLS) + '">' + pick(CHAR_DENSE) + '</span>';
+        }
+      } else if (ch === 'B') {
+        var start = c;
+        while (c < W && grid[r][c] === 'B') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="' + pick(BRIM_CLS) + '">' + pick(CHAR_DENSE) + '</span>';
+        }
+      } else if (ch === 'L') {
+        // Helmet light
+        var start = c;
+        while (c < W && grid[r][c] === 'L') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="hlight">' + pick(CHAR_DENSE) + '</span>';
         }
       } else if (ch === 'V') {
-        // Visor detail line
         var start = c;
         while (c < W && grid[r][c] === 'V') c++;
         for (var j = 0; j < c - start; j++) {
-          html += '<span class="char-v">' + pick(CHAR_LIGHT) + '</span>';
+          html += '<span class="visor">' + pick(CHAR_LIGHT) + '</span>';
         }
-      } else if (ch === 'C') {
-        // Body/head — dark silhouette
+      } else if (ch === 'E') {
+        // Glasses
         var start = c;
-        while (c < W && grid[r][c] === 'C') c++;
+        while (c < W && grid[r][c] === 'E') c++;
         for (var j = 0; j < c - start; j++) {
-          html += '<span class="char-b">' + ((Math.random() > 0.25) ? pick(CHAR_DENSE) : pick(CHAR_MED)) + '</span>';
+          html += '<span class="glasses">' + pick(CHAR_DENSE) + '</span>';
         }
       } else if (ch === 'F') {
+        // Face
         var start = c;
         while (c < W && grid[r][c] === 'F') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="' + pick(FACE_CLS) + '">' + pick(CHAR_MED) + '</span>';
+        }
+      } else if (ch === 'n') {
+        // Neck
+        var start = c;
+        while (c < W && grid[r][c] === 'n') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="neck0">' + pick(CHAR_MED) + '</span>';
+        }
+      } else if (ch === 'K') {
+        // Turnout coat
+        var start = c;
+        while (c < W && grid[r][c] === 'K') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="' + pick(COAT_CLS) + '">' + pick(CHAR_DENSE) + '</span>';
+        }
+      } else if (ch === 'S') {
+        // Reflective stripe
+        var start = c;
+        while (c < W && grid[r][c] === 'S') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="stripe">' + pick(CHAR_LIGHT) + '</span>';
+        }
+      } else if (ch === 'G') {
+        // Gear / dark equipment
+        var start = c;
+        while (c < W && grid[r][c] === 'G') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="' + pick(GEAR_CLS) + '">' + pick(CHAR_DENSE) + '</span>';
+        }
+      } else if (ch === 'f') {
+        var start = c;
+        while (c < W && grid[r][c] === 'f') c++;
         for (var j = 0; j < c - start; j++) {
           html += '<span class="fire">' + pick(FIRE_CHARS) + '</span>';
         }
@@ -396,6 +475,73 @@ function buildScene() {
 }
 
 buildScene();
+
+/* ============================================================
+   FLASHLIGHT BEAM — sweeps left and right from helmet
+   ============================================================ */
+var beamCanvas = document.getElementById('beam-canvas');
+var beamCtx = beamCanvas.getContext('2d');
+var beamAngle = 0;
+var beamDir = 1;
+var beamSpeed = 0.008;
+var beamMaxAngle = 0.6; // radians, ~35 degrees each side
+
+function resizeBeam() {
+  beamCanvas.width = window.innerWidth;
+  beamCanvas.height = window.innerHeight;
+}
+resizeBeam();
+window.addEventListener('resize', resizeBeam);
+
+function drawBeam() {
+  var w = beamCanvas.width;
+  var h = beamCanvas.height;
+  beamCtx.clearRect(0, 0, w, h);
+
+  // Light origin — center of helmet, roughly 30% from top
+  var originX = w / 2;
+  var originY = h * 0.22;
+
+  // Beam direction — sweeps left/right
+  beamAngle += beamSpeed * beamDir;
+  if (beamAngle > beamMaxAngle) { beamAngle = beamMaxAngle; beamDir = -1; }
+  if (beamAngle < -beamMaxAngle) { beamAngle = -beamMaxAngle; beamDir = 1; }
+
+  // Draw a cone of light
+  var beamLen = Math.max(w, h) * 1.5;
+  var spread = 0.12; // half-angle of beam cone in radians
+
+  var angle = -Math.PI / 2 + beamAngle; // -PI/2 is straight up, we want mostly upward
+  // Actually the beam should go upward and outward from the helmet
+  // Let's make it point slightly upward from horizontal
+  angle = -0.3 + beamAngle; // mostly horizontal, slight upward tilt
+
+  var leftAngle = angle - spread;
+  var rightAngle = angle + spread;
+
+  var grad = beamCtx.createRadialGradient(originX, originY, 0, originX, originY, beamLen * 0.6);
+  grad.addColorStop(0, 'rgba(255, 238, 136, 0.15)');
+  grad.addColorStop(0.3, 'rgba(255, 238, 136, 0.06)');
+  grad.addColorStop(1, 'rgba(255, 238, 136, 0)');
+
+  beamCtx.fillStyle = grad;
+  beamCtx.beginPath();
+  beamCtx.moveTo(originX, originY);
+  beamCtx.lineTo(
+    originX + Math.cos(leftAngle) * beamLen,
+    originY + Math.sin(leftAngle) * beamLen
+  );
+  beamCtx.lineTo(
+    originX + Math.cos(rightAngle) * beamLen,
+    originY + Math.sin(rightAngle) * beamLen
+  );
+  beamCtx.closePath();
+  beamCtx.fill();
+
+  requestAnimationFrame(drawBeam);
+}
+
+drawBeam();
 
 /* Animate fire tips */
 function animateFire() {
