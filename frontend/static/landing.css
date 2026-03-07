@@ -225,12 +225,12 @@ html, body {
 }
 
 /* Beam character colors — bright to dim with distance */
-.bm0 { color: rgba(255, 240, 140, 0.7); }
-.bm1 { color: rgba(255, 235, 120, 0.5); }
-.bm2 { color: rgba(255, 230, 100, 0.35); }
-.bm3 { color: rgba(255, 225, 90, 0.2); }
-.bm4 { color: rgba(255, 220, 80, 0.12); }
-.bm5 { color: rgba(255, 215, 70, 0.07); }
+.bm0 { color: rgba(255, 240, 140, 0.95); }
+.bm1 { color: rgba(255, 235, 120, 0.75); }
+.bm2 { color: rgba(255, 230, 100, 0.55); }
+.bm3 { color: rgba(255, 225, 90, 0.38); }
+.bm4 { color: rgba(255, 220, 80, 0.22); }
+.bm5 { color: rgba(255, 215, 70, 0.12); }
 /* Glasses — dark tinted lenses */
 .glasses { color: #1a1a22; }
 /* Face/skin */

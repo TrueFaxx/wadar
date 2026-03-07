@@ -533,7 +533,7 @@ function renderBeam() {
         var angleT = diff / spread;
         var brightness = (1 - distT) * (1 - angleT * angleT);
 
-        if (brightness > 0.02 && Math.random() < brightness * 0.8) {
+        if (brightness > 0.01 && Math.random() < brightness * 1.2) {
           var clsIdx = Math.min(Math.floor((1 - brightness) * BEAM_CLS.length), BEAM_CLS.length - 1);
           row += '<span class="' + BEAM_CLS[clsIdx] + '">' + pick(BEAM_CHARS) + '</span>';
         } else {
