@@ -227,7 +227,7 @@ html, body {
   flex: 1;
   display: grid;
   grid-template-columns: 1fr 300px;
-  grid-template-rows: 1fr 180px;
+  grid-template-rows: 1fr 280px;
   gap: var(--gap);
   min-height: 0;
 }
@@ -269,10 +269,21 @@ html, body {
 /* ============================================================
    DEVICE LIST
    ============================================================ */
+.device-search-wrap {
+  padding: 22px 10px 0 10px;
+  flex-shrink: 0;
+}
+
+.device-search-wrap .cfg-input {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .devices-inner {
   flex: 1;
   overflow-y: auto;
-  padding: 22px 10px 10px 10px;
+  padding: 6px 10px 10px 10px;
 }
 
 .device-list { list-style: none; }
@@ -414,6 +425,44 @@ html, body {
 .fix-value {
   color: var(--p);
   text-align: right;
+}
+
+/* ============================================================
+   CONFIG INPUTS
+   ============================================================ */
+.cfg-input {
+  background: var(--bg);
+  border: 1px solid var(--p-faint);
+  color: var(--p);
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 2px 6px;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.cfg-input:focus {
+  outline: none;
+  border-color: var(--p-mid);
+}
+
+.cfg-btn {
+  background: var(--bg);
+  border: 1px solid var(--p-faint);
+  color: var(--p-mid);
+  font-family: var(--font);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 12px;
+  cursor: pointer;
+  margin-top: 6px;
+  width: 100%;
+}
+
+.cfg-btn:hover {
+  border-color: var(--p-mid);
+  color: var(--p);
 }
 
 /* ============================================================

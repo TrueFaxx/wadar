@@ -13,6 +13,7 @@ log = logging.getLogger("wadar-ws")
 
 devices = []
 dishes = {}
+dish_config = {"distance": 3.82, "bearing": 94.0}
 device_clients = set()
 dish_clients = {}
 web_clients = {}
@@ -36,7 +37,22 @@ async def handle_command(websocket, cmd, data):
     action = parts[0]
     target = parts[1] if len(parts) > 1 else None
 
-    if action == "COUNT" and target == "DISH":
+    if action == "SET" and target == "CONFIG":
+        if "distance" in data:
+            dish_config["distance"] = float(data["distance"])
+        if "bearing" in data:
+            dish_config["bearing"] = float(data["bearing"])
+        log.info("Config updated: dist=%.1fm, bearing=%.1f deg",
+                 dish_config["distance"], dish_config["bearing"])
+        # Broadcast config to all web clients (triangulator listens on :5005)
+        config_msg = json.dumps({"type": "config", **dish_config})
+        for cid, ws in list(web_clients.items()):
+            try:
+                await ws.send(config_msg)
+            except Exception:
+                pass
+        await websocket.send(json.dumps({"cmd": cmd, "result": "OK"}))
+    elif action == "COUNT" and target == "DISH":
         await websocket.send(json.dumps({"cmd": cmd, "result": len(dishes)}))
     elif action == "COUNT" and target == "DEVICE":
         await websocket.send(json.dumps({"cmd": cmd, "result": len(devices)}))
@@ -106,7 +122,6 @@ async def dish_handler(websocket):
                 degrees = data.get("degrees")
                 if degrees is not None:
                     dishes[dish_id] = {"id": dish_id, "degrees": degrees}
-                    log.info("DISH %s updated: %s deg", dish_id, degrees)
                     await broadcast_web()
             except json.JSONDecodeError:
                 log.warning("DISH bad JSON from %s", addr)

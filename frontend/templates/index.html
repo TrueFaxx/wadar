@@ -33,6 +33,9 @@
 
     <div class="compartment c-devices boot-hidden" id="boot-devices">
       <div class="compartment-label">DETECTED DEVICES</div>
+      <div class="device-search-wrap">
+        <input type="text" id="device-search" class="cfg-input" placeholder="SEARCH MAC / NAME...">
+      </div>
       <div class="devices-inner">
         <ul class="device-list" id="device-list"></ul>
       </div>
@@ -42,6 +45,18 @@
       <div class="compartment-label">DISH STATUS</div>
       <div class="data-inner" id="dish-panel">
         <div class="dish-none">NO DISHES AVAILABLE AT THE MOMENT</div>
+      </div>
+      <div class="compartment-label" style="position:static; border:none; border-top:1px solid var(--p-faint); padding-top:4px;">DISH CONFIG</div>
+      <div class="data-inner">
+        <div class="fix-grid">
+          <span class="fix-label">DIST (m)</span>
+          <input type="number" id="cfg-distance" class="cfg-input" value="3.82" step="0.5" min="0.5">
+          <span class="fix-label">BEARING</span>
+          <input type="number" id="cfg-bearing" class="cfg-input" value="94" step="1" min="0" max="360">
+          <span class="fix-label">HEADING</span>
+          <input type="number" id="cfg-heading" class="cfg-input" value="0" step="1" min="0" max="360">
+        </div>
+        <button class="cfg-btn" id="cfg-send">APPLY</button>
       </div>
     </div>
   </div>
@@ -74,18 +89,19 @@ var C = {
    ============================================================ */
 function updateClock() {
   var now = new Date();
-  var h = String(now.getUTCHours()).padStart(2, '0');
-  var m = String(now.getUTCMinutes()).padStart(2, '0');
-  var s = String(now.getUTCSeconds()).padStart(2, '0');
-  document.getElementById('clock').textContent = h + ':' + m + ':' + s + 'Z';
+  var pst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  var h = String(pst.getHours()).padStart(2, '0');
+  var m = String(pst.getMinutes()).padStart(2, '0');
+  var s = String(pst.getSeconds()).padStart(2, '0');
+  document.getElementById('clock').textContent = h + ':' + m + ':' + s + ' PST';
 
   var days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
   var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   document.getElementById('date').textContent =
-    days[now.getUTCDay()] + ' ' +
-    String(now.getUTCDate()).padStart(2, '0') + ' ' +
-    months[now.getUTCMonth()] + ' ' +
-    now.getUTCFullYear();
+    days[pst.getDay()] + ' ' +
+    String(pst.getDate()).padStart(2, '0') + ' ' +
+    months[pst.getMonth()] + ' ' +
+    pst.getFullYear();
 }
 
 /* ============================================================
@@ -101,27 +117,57 @@ var ws = null;
    ============================================================ */
 function renderDevices() {
   var list = document.getElementById('device-list');
-  list.innerHTML = '';
-  devices.forEach(function(d, i) {
+  list.textContent = '';
+  var query = (document.getElementById('device-search').value || '').toLowerCase();
+
+  // Sort by RSSI descending (strongest/closest first)
+  var sorted = devices.slice().sort(function(a, b) { return b.rssi - a.rssi; });
+
+  sorted.forEach(function(d) {
+    if (query && d.mac.toLowerCase().indexOf(query) === -1 &&
+        (d.name || '').toLowerCase().indexOf(query) === -1) return;
+    var origIdx = devices.indexOf(d);
     var li = document.createElement('li');
-    if (i === selectedDevice) li.classList.add('active');
-    li.innerHTML =
-      '<div class="device-row">' +
-        '<span><span class="device-indicator ' + (d.fix ? 'fix' : '') + '"></span><span class="device-mac">' + d.mac + '</span></span>' +
-        '<span class="device-rssi">' + d.rssi + ' dBm</span>' +
-      '</div>' +
-      '<div class="device-name">' + d.name + '</div>';
+    if (origIdx === selectedDevice) li.classList.add('active');
+
+    var row = document.createElement('div');
+    row.className = 'device-row';
+    var left = document.createElement('span');
+    var indicator = document.createElement('span');
+    indicator.className = 'device-indicator' + (d.fix ? ' fix' : '');
+    var mac = document.createElement('span');
+    mac.className = 'device-mac';
+    mac.textContent = d.mac;
+    left.appendChild(indicator);
+    left.appendChild(mac);
+    var rssi = document.createElement('span');
+    rssi.className = 'device-rssi';
+    rssi.textContent = d.rssi + ' dBm';
+    row.appendChild(left);
+    row.appendChild(rssi);
+
+    var name = document.createElement('div');
+    name.className = 'device-name';
+    name.textContent = d.name;
+
+    li.appendChild(row);
+    li.appendChild(name);
     li.addEventListener('click', function() {
-      selectedDevice = i;
+      selectedDevice = origIdx;
       renderDevices();
-      renderPosition();
-      renderSignal();
       drawMap();
     });
     list.appendChild(li);
   });
   document.getElementById('device-count').textContent = devices.length;
 }
+
+document.getElementById('device-search').addEventListener('input', renderDevices);
+
+document.getElementById('cfg-heading').addEventListener('input', function() {
+  mapHeading = parseFloat(this.value) || 0;
+  drawMap();
+});
 
 /* ============================================================
    RENDER DISHES
@@ -156,7 +202,7 @@ function renderDishes() {
 }
 
 /* ============================================================
-   MAP CANVAS
+   MAP CANVAS — pan/zoom
    ============================================================ */
 var canvas = document.getElementById('map-canvas');
 var ctx = canvas.getContext('2d');
@@ -166,10 +212,75 @@ var MAP_BOUNDS = {
   minLon: -122.425, maxLon: -122.405,
 };
 
-function latLonToCanvas(lat, lon) {
-  var x = (lon - MAP_BOUNDS.minLon) / (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon) * canvas.width;
-  var y = (1 - (lat - MAP_BOUNDS.minLat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * canvas.height;
-  return { x: x, y: y };
+// View state: offset in CSS px and zoom level
+var mapZoom = 1.0;
+var mapPanX = 0;  // px offset
+var mapPanY = 0;
+var mapHeading = 0;  // degrees, 0 = north up
+var mapDragging = false;
+var mapDragStartX = 0;
+var mapDragStartY = 0;
+var mapPanStartX = 0;
+var mapPanStartY = 0;
+
+// Rotate screen-space delta into map space (invert the canvas rotation)
+function screenToMap(dx, dy) {
+  var a = mapHeading * Math.PI / 180;
+  var cos = Math.cos(a), sin = Math.sin(a);
+  return { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
+}
+
+canvas.addEventListener('wheel', function(e) {
+  e.preventDefault();
+  var rect = canvas.getBoundingClientRect();
+  var sx = e.clientX - rect.left;
+  var sy = e.clientY - rect.top;
+
+  // Convert mouse from screen to map space (relative to canvas center)
+  var mp = screenToMap(sx - rect.width / 2, sy - rect.height / 2);
+  var mx = mp.x + rect.width / 2;
+  var my = mp.y + rect.height / 2;
+
+  var oldZoom = mapZoom;
+  var delta = e.deltaY > 0 ? 0.9 : 1.1;
+  mapZoom = Math.max(0.2, Math.min(50, mapZoom * delta));
+
+  // Zoom toward mouse position (in map space)
+  mapPanX = mx - (mx - mapPanX) * (mapZoom / oldZoom);
+  mapPanY = my - (my - mapPanY) * (mapZoom / oldZoom);
+  drawMap();
+}, {passive: false});
+
+canvas.addEventListener('mousedown', function(e) {
+  mapDragging = true;
+  mapDragStartX = e.clientX;
+  mapDragStartY = e.clientY;
+  mapPanStartX = mapPanX;
+  mapPanStartY = mapPanY;
+  canvas.style.cursor = 'grabbing';
+});
+
+window.addEventListener('mousemove', function(e) {
+  if (!mapDragging) return;
+  var d = screenToMap(e.clientX - mapDragStartX, e.clientY - mapDragStartY);
+  mapPanX = mapPanStartX + d.x;
+  mapPanY = mapPanStartY + d.y;
+  drawMap();
+});
+
+window.addEventListener('mouseup', function() {
+  if (mapDragging) {
+    mapDragging = false;
+    canvas.style.cursor = 'grab';
+  }
+});
+
+canvas.style.cursor = 'grab';
+
+function latLonToCanvas(lat, lon, w, h) {
+  var x = (lon - MAP_BOUNDS.minLon) / (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon) * w;
+  var y = (1 - (lat - MAP_BOUNDS.minLat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * h;
+  return { x: x * mapZoom + mapPanX, y: y * mapZoom + mapPanY };
 }
 
 function drawMap() {
@@ -187,22 +298,34 @@ function drawMap() {
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, w, h);
 
-  // Dot grid
-  ctx.fillStyle = C.faint;
-  var gx = w / 20, gy = h / 16;
-  for (var xi = 0; xi <= 20; xi++)
-    for (var yi = 0; yi <= 16; yi++)
-      ctx.fillRect(Math.round(xi * gx), Math.round(yi * gy), 1, 1);
+  // Rotate map content around center by heading
+  var headingRad = -mapHeading * Math.PI / 180;
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(headingRad);
+  ctx.translate(-w / 2, -h / 2);
 
-  // Grid lines
+  // Grid — fixed spacing in screen pixels, ~40px apart
+  var gridSpacing = 40;
   ctx.strokeStyle = C.ghost;
   ctx.lineWidth = 0.5;
-  for (var xi = 0; xi <= 20; xi++) {
-    var xp = Math.round(xi * gx) + 0.5;
+
+  // Compute grid in world coords, then transform
+  var baseW = w * mapZoom;
+  var baseH = h * mapZoom;
+  var cols = Math.max(4, Math.ceil(baseW / gridSpacing));
+  var rows = Math.max(4, Math.ceil(baseH / gridSpacing));
+  var cellW = w / cols;
+  var cellH = h / rows;
+
+  for (var xi = 0; xi <= cols * 3; xi++) {
+    var xp = (xi * cellW) * mapZoom + mapPanX;
+    if (xp < -1 || xp > w + 1) continue;
     ctx.beginPath(); ctx.moveTo(xp, 0); ctx.lineTo(xp, h); ctx.stroke();
   }
-  for (var yi = 0; yi <= 16; yi++) {
-    var yp = Math.round(yi * gy) + 0.5;
+  for (var yi = 0; yi <= rows * 3; yi++) {
+    var yp = (yi * cellH) * mapZoom + mapPanY;
+    if (yp < -1 || yp > h + 1) continue;
     ctx.beginPath(); ctx.moveTo(0, yp); ctx.lineTo(w, yp); ctx.stroke();
   }
 
@@ -212,8 +335,8 @@ function drawMap() {
     var active = (i === selectedDevice);
 
     if (d.lat && d.lon) {
-      var pos = latLonToCanvas(d.lat, d.lon);
-      var px = pos.x / dpr, py = pos.y / dpr;
+      var pos = latLonToCanvas(d.lat, d.lon, w, h);
+      var px = pos.x, py = pos.y;
 
       if (active) {
         ctx.strokeStyle = C.bright;
@@ -248,16 +371,131 @@ function drawMap() {
 
   // CEP circle
   if (sel && sel.fix && sel.lat && sel.lon) {
-    var pos = latLonToCanvas(sel.lat, sel.lon);
-    var px = pos.x / dpr, py = pos.y / dpr;
+    var pos = latLonToCanvas(sel.lat, sel.lon, w, h);
+    var px = pos.x, py = pos.y;
     var cepDeg = (Math.abs(sel.rssi) * 0.3) / 111000;
-    var cepPx = (cepDeg / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * h;
+    var cepPx = (cepDeg / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * h * mapZoom;
     ctx.strokeStyle = C.dim;
     ctx.lineWidth = 0.5;
     ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.arc(px, py, cepPx, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
   }
+
+  // Dish positions
+  var REF_LAT = 37.7725, REF_LON = -122.415;
+  var cfgDist = parseFloat(document.getElementById('cfg-distance').value) || 3.82;
+  var cfgBear = parseFloat(document.getElementById('cfg-bearing').value) || 94;
+  var dishPositions = [
+    { id: 'DISH-1', lat: REF_LAT, lon: REF_LON },
+    {
+      id: 'DISH-2',
+      lat: REF_LAT + (cfgDist * Math.cos(cfgBear * Math.PI / 180)) / 111320,
+      lon: REF_LON + (cfgDist * Math.sin(cfgBear * Math.PI / 180)) / (111320 * Math.cos(REF_LAT * Math.PI / 180))
+    }
+  ];
+
+  dishPositions.forEach(function(dp) {
+    var pos = latLonToCanvas(dp.lat, dp.lon, w, h);
+    var dx = pos.x, dy = pos.y;
+
+    // Dish icon: triangle pointing up
+    ctx.fillStyle = C.mid;
+    ctx.strokeStyle = C.bright;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(dx, dy - 7);
+    ctx.lineTo(dx + 6, dy + 5);
+    ctx.lineTo(dx - 6, dy + 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Heading line
+    var dishData = dishes[dp.id];
+    if (dishData && dishData.degrees !== undefined) {
+      var headRad = dishData.degrees * Math.PI / 180;
+      var lineLen = 30;
+      ctx.strokeStyle = C.dim;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(dx, dy);
+      ctx.lineTo(dx + Math.sin(headRad) * lineLen, dy - Math.cos(headRad) * lineLen);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Label
+    ctx.fillStyle = C.bright;
+    ctx.font = '11px "IBM 3270", monospace';
+    ctx.fillText(dp.id, dx + 10, dy - 8);
+  });
+
+  // Restore from heading rotation before drawing HUD
+  ctx.restore();
+
+  // Zoom indicator
+  ctx.fillStyle = C.dim;
+  ctx.font = '10px "IBM 3270", monospace';
+  ctx.fillText('ZOOM: ' + mapZoom.toFixed(1) + 'x', 6, h - 6);
+  ctx.fillText('HDG: ' + mapHeading + '\u00B0', 6, h - 18);
+
+  // Compass rose — top-right corner, rotated by heading
+  var cx = w - 30;
+  var cy = 32;
+  var armLen = 16;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(headingRad);  // rotate so N points to true north
+
+  // Cross lines
+  ctx.strokeStyle = C.mid;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, -armLen); ctx.lineTo(0, armLen);
+  ctx.moveTo(-armLen, 0); ctx.lineTo(armLen, 0);
+  ctx.stroke();
+
+  // North arrow (filled)
+  ctx.fillStyle = C.bright;
+  ctx.beginPath();
+  ctx.moveTo(0, -armLen);
+  ctx.lineTo(-4, -armLen + 8);
+  ctx.lineTo(4, -armLen + 8);
+  ctx.closePath();
+  ctx.fill();
+
+  // Tick marks on other arms
+  ctx.strokeStyle = C.dim;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-3, armLen); ctx.lineTo(3, armLen);
+  ctx.moveTo(armLen, -3); ctx.lineTo(armLen, 3);
+  ctx.moveTo(-armLen, -3); ctx.lineTo(-armLen, 3);
+  ctx.stroke();
+
+  // Labels — counter-rotate so text stays upright
+  ctx.font = '11px "IBM 3270", monospace';
+  ctx.textAlign = 'center';
+  var dirs = [
+    { label: 'N', x: 0, y: -armLen - 6, bright: true },
+    { label: 'S', x: 0, y: armLen + 12, bright: false },
+    { label: 'E', x: armLen + 10, y: 4, bright: false },
+    { label: 'W', x: -armLen - 10, y: 4, bright: false }
+  ];
+  dirs.forEach(function(d) {
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.rotate(-headingRad);  // keep text upright
+    ctx.fillStyle = d.bright ? C.bright : C.dim;
+    ctx.fillText(d.label, 0, 0);
+    ctx.restore();
+  });
+
+  ctx.restore();
+  ctx.textAlign = 'left';  // reset
 }
 
 
@@ -362,6 +600,20 @@ function connectWebSocket() {
     ws.close();
   };
 }
+
+/* ============================================================
+   DISH CONFIG
+   ============================================================ */
+document.getElementById('cfg-send').addEventListener('click', function() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  var dist = parseFloat(document.getElementById('cfg-distance').value) || 10;
+  var bearing = parseFloat(document.getElementById('cfg-bearing').value) || 90;
+  ws.send(JSON.stringify({
+    cmd: 'SET CONFIG',
+    distance: dist,
+    bearing: bearing
+  }));
+});
 
 /* ============================================================
    START
