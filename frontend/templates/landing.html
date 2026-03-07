@@ -31,7 +31,7 @@
 
     <div class="panel-right boot-fade" id="b-info">
       <div class="info-panel">
-        <div class="info-panel-title">Mission Intel</div>
+        <div class="info-panel-title">Event Information</div>
         <div class="info-row">
           <span class="label">Date</span>
           <span class="value" id="info-date">--</span>
@@ -84,6 +84,8 @@
    FOREST SCENE — individual pine trees placed across viewport
    Each tree is a triangle of foliage on a thick trunk.
    ============================================================ */
+var FIRE_CHARS     = ['^','*','~','"',"'",'`','.'];
+var FIRE_COLORS    = ['fc0','fc1','fc2','fc3','fc4'];
 var NEEDLE_CHARS   = ['{','}','(',')','/','\\','^','*','%','&','#'];
 var NEEDLE_CLASSES = ['n0','n1','n2','n3','n4','n5'];
 var TRUNK_CHARS    = ['|','H','#','|','|','|','I','|'];
@@ -92,15 +94,141 @@ var GROUND_CHARS   = ['.','.',',',',','_','.','`',"'"];
 var SKY_CHARS    = ['.','.',':',':','-','~','`',"'",' ',' ',' '];
 var SKY_DENSE    = ['.',':',';','-','~','=','+','*'];
 var SKY_CLASSES  = ['sky0','sky1','sky2','sky3','sky4','sky5','sky6','sky7','sky8','sky9','sky10','sky11','sky12','sky13','sky14'];
+var CHAR_DENSE   = ['@','#','M','W','N','%','&','$','8','B','D'];
+var CHAR_MED     = ['=','+','*','x','o','k','d'];
+var CHAR_LIGHT   = [':',';','.','~','-'];
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function skyClass(row, totalRows) {
-  // Map row to a sky color band — top is deep purple, bottom is golden
   var t = row / totalRows;
   var idx = Math.floor(t * SKY_CLASSES.length);
   if (idx >= SKY_CLASSES.length) idx = SKY_CLASSES.length - 1;
   return SKY_CLASSES[idx];
+}
+
+/* ============================================================
+   FIREFIGHTER CHARACTER — 3 shapes: helmet, head, body
+   All defined as ellipses with center, radii, and row range.
+   Painted onto grid after trees. Body extends off-screen bottom.
+   ============================================================ */
+function buildCharacter(W, totalRows, grid) {
+  var cx = Math.floor(W / 2); // center x
+
+  // --- BODY (shoulders) — wide, extends off bottom ---
+  // Trapezoid: narrow at neck, widens to shoulders, goes off screen
+  var bodyTopRow = Math.floor(totalRows * 0.58);
+  var bodyNeckW = 18; // half-width at neck
+  var bodyShoulderW = 65; // half-width at full shoulder
+  var bodyWidenRows = 25; // rows to go from neck to full width
+
+  for (var r = bodyTopRow; r < totalRows; r++) {
+    var rowInBody = r - bodyTopRow;
+    var t = Math.min(rowInBody / bodyWidenRows, 1);
+    // Ease out for natural shoulder curve
+    var ease = 1 - (1 - t) * (1 - t);
+    var halfW = Math.floor(bodyNeckW + (bodyShoulderW - bodyNeckW) * ease);
+
+    for (var dc = -halfW; dc <= halfW; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        // Slight edge fade
+        var edgeDist = Math.abs(dc) / halfW;
+        if (edgeDist < 0.95 || Math.random() < 0.6) {
+          grid[r][col] = 'C'; // character
+        }
+      }
+    }
+  }
+
+  // --- HEAD — large oval ---
+  var headCY = Math.floor(totalRows * 0.42);
+  var headRX = 28; // horizontal radius
+  var headRY = 22; // vertical radius
+
+  for (var r = headCY - headRY; r <= headCY + headRY; r++) {
+    if (r < 0 || r >= totalRows) continue;
+    var dy = (r - headCY) / headRY;
+    var xExtent = Math.floor(headRX * Math.sqrt(Math.max(0, 1 - dy * dy)));
+
+    for (var dc = -xExtent; dc <= xExtent; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        var edgeDist = Math.abs(dc) / (xExtent || 1);
+        if (edgeDist < 0.92 || Math.random() < 0.5) {
+          grid[r][col] = 'C';
+        }
+      }
+    }
+  }
+
+  // --- NECK connecting head to body ---
+  var neckTop = headCY + headRY - 3;
+  var neckBot = bodyTopRow + 2;
+  var neckHalfW = 12;
+  for (var r = neckTop; r <= neckBot; r++) {
+    if (r < 0 || r >= totalRows) continue;
+    for (var dc = -neckHalfW; dc <= neckHalfW; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        grid[r][col] = 'C';
+      }
+    }
+  }
+
+  // --- HELMET — wider flat oval sitting on top of head ---
+  var helmetCY = headCY - headRY + 6; // overlaps top of head
+  var helmetRX = 36; // wider than head
+  var helmetRY = 10; // flatter
+
+  for (var r = helmetCY - helmetRY; r <= helmetCY + helmetRY; r++) {
+    if (r < 0 || r >= totalRows) continue;
+    var dy = (r - helmetCY) / helmetRY;
+    var xExtent = Math.floor(helmetRX * Math.sqrt(Math.max(0, 1 - dy * dy)));
+
+    // Flatten the bottom — make helmet brim wider at bottom half
+    if (dy > 0) {
+      xExtent = Math.floor(xExtent * 1.15);
+    }
+
+    for (var dc = -xExtent; dc <= xExtent; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        grid[r][col] = 'H'; // helmet (denser fill)
+      }
+    }
+  }
+
+  // --- HELMET BRIM — a thin wide band at the bottom of helmet ---
+  var brimRow = helmetCY + helmetRY - 2;
+  var brimHalfW = Math.floor(helmetRX * 1.2);
+  for (var dr = 0; dr < 3; dr++) {
+    var r = brimRow + dr;
+    if (r < 0 || r >= totalRows) continue;
+    // Brim tapers slightly
+    var w = brimHalfW - dr * 3;
+    for (var dc = -w; dc <= w; dc++) {
+      var col = cx + dc;
+      if (col >= 0 && col < W) {
+        grid[r][col] = 'H';
+      }
+    }
+  }
+
+  // --- VISOR LINE — horizontal detail across helmet ---
+  var visorRow = helmetCY + 2;
+  var visorHalfW = Math.floor(helmetRX * 0.7);
+  for (var dr = 0; dr < 2; dr++) {
+    var r = visorRow + dr;
+    if (r >= 0 && r < totalRows) {
+      for (var dc = -visorHalfW; dc <= visorHalfW; dc++) {
+        var col = cx + dc;
+        if (col >= 0 && col < W) {
+          grid[r][col] = 'V'; // visor detail
+        }
+      }
+    }
+  }
 }
 
 function buildScene() {
@@ -141,20 +269,17 @@ function buildScene() {
     });
   }
 
-  // Sort trees by topRow so farther (higher) trees render behind
   trees.sort(function(a, b) { return a.topRow - b.topRow; });
 
-  // Build a 2D grid: each cell is either null (empty) or { type, depth }
-  // We'll just compute per-cell what to render
-  // For performance, precompute tree coverage per row
-
-  // Render row by row
+  // Build full grid first so character can overlay trees
+  var grid = [];
   for (var r = 0; r < totalRows; r++) {
-    var div = document.createElement('div');
-    var rowChars = new Array(W);
-    for (var c = 0; c < W; c++) rowChars[c] = null;
+    grid[r] = new Array(W);
+    for (var c = 0; c < W; c++) grid[r][c] = null;
+  }
 
-    // Paint each tree onto this row
+  // Paint trees onto grid
+  for (var r = 0; r < totalRows; r++) {
     for (var ti = 0; ti < trees.length; ti++) {
       var t = trees[ti];
       if (r < t.topRow || r > t.bottomRow) continue;
@@ -162,22 +287,21 @@ function buildScene() {
       var rowInTree = r - t.topRow;
 
       if (rowInTree < t.canopyH) {
-        // Canopy zone — pine tree triangle shape
-        // Width grows linearly from tip (1-2) to max at bottom of canopy
-        var progress = rowInTree / t.canopyH; // 0 at tip, 1 at base
-        // Pine trees have a jagged/layered look — add some waviness
+        var progress = rowInTree / t.canopyH;
         var layerWave = Math.sin(rowInTree * 1.2) * 1.5;
         var halfW = Math.floor((progress * t.maxCanopyW) / 2 + layerWave);
         if (halfW < 1) halfW = 1;
 
+        // Top 3 rows of each tree = fire tip
+        var isTip = rowInTree < 3;
+
         for (var dc = -halfW; dc <= halfW; dc++) {
           var col = t.x + dc;
           if (col >= 0 && col < W) {
-            // Edges are less dense — sparse at the border of the triangle
             var edgeDist = halfW > 0 ? Math.abs(dc) / halfW : 0;
             var density = 0.9 - edgeDist * 0.5;
             if (Math.random() < density) {
-              rowChars[col] = 'N'; // needle
+              grid[r][col] = isTip ? 'F' : 'N';
             }
           }
         }
@@ -187,47 +311,75 @@ function buildScene() {
         for (var dc = -halfT; dc <= halfT; dc++) {
           var col = t.x + dc;
           if (col >= 0 && col < W) {
-            rowChars[col] = 'T'; // trunk
+            grid[r][col] = 'T'; // trunk
           }
         }
       }
     }
 
-    // Ground layer at the very bottom
+  } // end tree row loop
+
+  // Paint firefighter character on top of trees
+  buildCharacter(W, totalRows, grid);
+
+  // Render grid to HTML
+  for (var r = 0; r < totalRows; r++) {
+    var div = document.createElement('div');
     var isGround = r >= totalRows - 6;
     var cls = isGround ? 'gnd' : skyClass(r, totalRows);
 
-    // Build HTML from rowChars
     var html = '';
     var c = 0;
     while (c < W) {
-      var ch = rowChars[c];
-      if (ch === 'N') {
+      var ch = grid[r][c];
+      if (ch === 'H') {
+        // Helmet — densest fill
         var start = c;
-        while (c < W && rowChars[c] === 'N') c++;
+        while (c < W && grid[r][c] === 'H') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="char-h">' + pick(CHAR_DENSE) + '</span>';
+        }
+      } else if (ch === 'V') {
+        // Visor detail line
+        var start = c;
+        while (c < W && grid[r][c] === 'V') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="char-v">' + pick(CHAR_LIGHT) + '</span>';
+        }
+      } else if (ch === 'C') {
+        // Body/head — dark silhouette
+        var start = c;
+        while (c < W && grid[r][c] === 'C') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="char-b">' + ((Math.random() > 0.25) ? pick(CHAR_DENSE) : pick(CHAR_MED)) + '</span>';
+        }
+      } else if (ch === 'F') {
+        var start = c;
+        while (c < W && grid[r][c] === 'F') c++;
+        for (var j = 0; j < c - start; j++) {
+          html += '<span class="fire">' + pick(FIRE_CHARS) + '</span>';
+        }
+      } else if (ch === 'N') {
+        var start = c;
+        while (c < W && grid[r][c] === 'N') c++;
         for (var j = 0; j < c - start; j++) {
           html += '<span class="' + pick(NEEDLE_CLASSES) + '">' + pick(NEEDLE_CHARS) + '</span>';
         }
       } else if (ch === 'T') {
         var start = c;
-        while (c < W && rowChars[c] === 'T') c++;
+        while (c < W && grid[r][c] === 'T') c++;
         for (var j = 0; j < c - start; j++) {
           html += '<span class="' + pick(TRUNK_CLASSES) + '">' + pick(TRUNK_CHARS) + '</span>';
         }
       } else {
-        // Sky or ground fill
         if (isGround) {
-          if (Math.random() < 0.4) {
-            html += '<span class="gnd">' + pick(GROUND_CHARS) + '</span>';
-          } else {
-            html += '<span class="gnd"> </span>';
-          }
+          html += (Math.random() < 0.4) ?
+            '<span class="gnd">' + pick(GROUND_CHARS) + '</span>' :
+            '<span class="gnd"> </span>';
         } else {
-          // Sky — denser near the horizon (bottom), sparser at top
           var t = r / totalRows;
-          var skyDensity = 0.15 + t * 0.5; // 15% at top, 65% near bottom
+          var skyDensity = 0.15 + t * 0.5;
           if (Math.random() < skyDensity) {
-            // Near horizon, use denser chars
             var skyChar = (t > 0.6) ? pick(SKY_DENSE) : pick(SKY_CHARS);
             html += '<span class="' + cls + '">' + skyChar + '</span>';
           } else {
@@ -244,6 +396,18 @@ function buildScene() {
 }
 
 buildScene();
+
+/* Animate fire tips */
+function animateFire() {
+  var cells = document.querySelectorAll('.fire');
+  for (var i = 0; i < cells.length; i++) {
+    var s = cells[i];
+    s.textContent = pick(FIRE_CHARS);
+    s.className = 'fire ' + pick(FIRE_COLORS);
+  }
+  setTimeout(animateFire, 150);
+}
+animateFire();
 
 /* Clock */
 function updateInfo() {
