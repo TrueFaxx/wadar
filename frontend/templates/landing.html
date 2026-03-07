@@ -55,11 +55,11 @@
         </div>
         <div class="info-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;">
           <span class="label">Status</span>
-          <span class="value" id="info-status">STANDBY</span>
+          <span class="value" id="info-status">--</span>
         </div>
         <div class="info-row">
           <span class="label">Dishes</span>
-          <span class="value">2 ONLINE</span>
+          <span class="value" id="info-dishes">--</span>
         </div>
         <div class="info-row">
           <span class="label">Devices</span>
@@ -597,10 +597,64 @@ document.fonts.ready.then(function() {
   setTimeout(function() {
     updateInfo();
     setInterval(updateInfo, 1000);
-    document.getElementById('info-status').textContent = 'OPERATIONAL';
-    document.getElementById('info-devices').textContent = '3 DETECTED';
+    connectLandingWS();
   }, bootOrder.length * bootDelay + 200);
 });
+
+var lws = null;
+var lwsCallbacks = {};
+
+function sendCmd(cmd, cb) {
+  if (!lws || lws.readyState !== 1) {
+    cb(null, 'NOT CONNECTED');
+    return;
+  }
+  lwsCallbacks[cmd] = cb;
+  lws.send(JSON.stringify({cmd: cmd}));
+}
+
+function pollStatus() {
+  sendCmd('PING SERVER', function(data, err) {
+    document.getElementById('info-status').textContent = err ? 'OFFLINE' : data.result;
+  });
+  sendCmd('COUNT DISH', function(data, err) {
+    var n = (data && data.result !== undefined) ? data.result : 0;
+    document.getElementById('info-dishes').textContent = n + ' ONLINE';
+  });
+  sendCmd('COUNT DEVICE', function(data, err) {
+    var n = (data && data.result !== undefined) ? data.result : 0;
+    document.getElementById('info-devices').textContent = n + ' DETECTED';
+  });
+}
+
+function connectLandingWS() {
+  lws = new WebSocket('ws://localhost:5005');
+  lws.onopen = function() {
+    lws.send(JSON.stringify({data: 'connect', id: 'LANDING-' + Date.now()}));
+  };
+  lws.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.response === 'CONNECTED') {
+        pollStatus();
+        setInterval(pollStatus, 3000);
+        return;
+      }
+      if (data.cmd && lwsCallbacks[data.cmd]) {
+        lwsCallbacks[data.cmd](data, null);
+        delete lwsCallbacks[data.cmd];
+      }
+    } catch(err) {}
+  };
+  lws.onclose = function() {
+    lws = null;
+    document.getElementById('info-status').textContent = 'OFFLINE';
+    document.getElementById('info-dishes').textContent = '--';
+    document.getElementById('info-devices').textContent = '--';
+    setTimeout(connectLandingWS, 3000);
+  };
+  lws.onerror = function() { lws.close(); };
+}
 
 /* Keyboard navigation */
 var menuItems = document.querySelectorAll('.menu-item');

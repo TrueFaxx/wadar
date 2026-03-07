@@ -27,6 +27,25 @@ def build_web_state():
     }
 
 
+async def handle_command(websocket, cmd, data):
+    parts = cmd.strip().upper().split()
+    if len(parts) == 0:
+        await websocket.send(json.dumps({"cmd": cmd, "error": "EMPTY COMMAND"}))
+        return
+
+    action = parts[0]
+    target = parts[1] if len(parts) > 1 else None
+
+    if action == "COUNT" and target == "DISH":
+        await websocket.send(json.dumps({"cmd": cmd, "result": len(dishes)}))
+    elif action == "COUNT" and target == "DEVICE":
+        await websocket.send(json.dumps({"cmd": cmd, "result": len(devices)}))
+    elif action == "PING" and target == "SERVER":
+        await websocket.send(json.dumps({"cmd": cmd, "result": "OPERATIONAL"}))
+    else:
+        await websocket.send(json.dumps({"cmd": cmd, "error": "UNKNOWN COMMAND"}))
+
+
 async def broadcast_web():
     payload = json.dumps(build_web_state())
     for cid, ws in list(web_clients.items()):
@@ -119,6 +138,11 @@ async def web_handler(websocket):
                     log.info("WEB registered: %s from %s", client_id, addr)
                     await websocket.send(json.dumps({"response": "CONNECTED", "id": client_id}))
                     await websocket.send(json.dumps(build_web_state()))
+                    continue
+
+                cmd = data.get("cmd")
+                if cmd:
+                    await handle_command(websocket, cmd, data)
                     continue
             except json.JSONDecodeError:
                 pass
