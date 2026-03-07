@@ -2,32 +2,40 @@
 """Simple HTTP server that exposes BNO055 sensor data as JSON."""
 
 import json
+import os
+import sys
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from bno055 import BNO055
 
 imu = None
+cal_saved = False
+CAL_PATH = None
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global cal_saved
         if self.path != "/":
             self.send_error(404)
             return
 
         try:
             heading, roll, pitch = imu.euler()
-            sys, gyro, accel, mag = imu.calibration_status()
+            s, gyro, accel, mag = imu.calibration_status()
             data = {
                 "heading": round(heading, 2),
                 "roll": round(roll, 2),
                 "pitch": round(pitch, 2),
-                "cal_sys": sys,
+                "cal_sys": s,
                 "cal_gyro": gyro,
                 "cal_accel": accel,
                 "cal_mag": mag,
                 "time": time.time(),
             }
+            if not cal_saved and mag == 3 and gyro == 3:
+                imu.save_calibration(CAL_PATH)
+                cal_saved = True
         except OSError:
             data = {"error": "I2C read failed"}
 
@@ -42,9 +50,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global imu
-    print("Initializing BNO055...")
-    imu = BNO055()
+    global imu, CAL_PATH
+    offset = float(sys.argv[1]) if len(sys.argv) > 1 else 0.0
+    CAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json")
+    print(f"Initializing BNO055 (heading offset: {offset})...")
+    imu = BNO055(heading_offset=offset)
+    if imu.load_calibration(CAL_PATH):
+        print(f"Loaded calibration from {CAL_PATH}")
+    else:
+        print("No saved calibration found, will save when calibrated.")
     print("BNO055 ready.")
 
     server = HTTPServer(("0.0.0.0", 8080), Handler)
