@@ -13,9 +13,28 @@ cal_saved = False
 CAL_PATH = None
 
 
+zero_count = 0
+
+
+def reinit_imu():
+    """Re-initialize BNO055 after a crash."""
+    global imu, cal_saved, zero_count
+    try:
+        imu.close()
+    except Exception:
+        pass
+    offset = imu.heading_offset
+    imu = BNO055(heading_offset=offset)
+    if imu.load_calibration(CAL_PATH):
+        print("Reloaded calibration after reinit", flush=True)
+    cal_saved = False
+    zero_count = 0
+    print("BNO055 re-initialized", flush=True)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        global cal_saved
+        global cal_saved, zero_count
         if self.path != "/":
             self.send_error(404)
             return
@@ -23,6 +42,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             heading, roll, pitch = imu.euler()
             s, gyro, accel, mag = imu.calibration_status()
+
+            # Detect chip crash: all zeros for 5+ consecutive reads
+            if heading == 0 and roll == 0 and pitch == 0 and s == 0 and mag == 0:
+                zero_count += 1
+                if zero_count >= 5:
+                    print("BNO055 crash detected (all zeros), reinitializing...", flush=True)
+                    try:
+                        reinit_imu()
+                        heading, roll, pitch = imu.euler()
+                        s, gyro, accel, mag = imu.calibration_status()
+                    except Exception as e:
+                        data = {"error": f"reinit failed: {e}"}
+            else:
+                zero_count = 0
+
             data = {
                 "heading": round(heading, 2),
                 "roll": round(roll, 2),

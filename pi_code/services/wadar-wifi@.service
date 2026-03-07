@@ -1,0 +1,13 @@
+[Unit]
+Description=WiFi Monitor Capture
+After=network.target
+
+[Service]
+ExecStartPre=/sbin/modprobe 88XXau
+ExecStart=/usr/bin/python3 -u monitor_capture.py wlan1 8081 6
+WorkingDirectory=/home/%i/wifi
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

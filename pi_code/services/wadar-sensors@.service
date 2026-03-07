@@ -1,0 +1,12 @@
+[Unit]
+Description=BNO055 Sensor Server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 -u sensor_server.py
+WorkingDirectory=/home/%i/sensors
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
