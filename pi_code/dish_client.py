@@ -52,16 +52,20 @@ REG_EUL_HEADING = 0x1A
 REG_CALIB_DATA = 0x55
 MODE_CONFIG = 0x00
 MODE_NDOF = 0x0C
+MODE_NDOF_FMC_OFF = 0x0B  # NDOF without fast magnetometer cal (stable on rotating platform)
 POWER_NORMAL = 0x00
 BNO055_CHIP_ID = 0xA5
 BNO055_CHIP_ID_ALT = 0xA0
 I2C_RETRIES = 5
-CAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json")
 
 # ── Shared state ──────────────────────────────────────────────────
 
 heading_lock = threading.Lock()
 current_heading = 0.0
+
+channel_lock = threading.Lock()
+target_channel = None  # None = hop, else locked channel number
+channel_changed = threading.Event()
 
 # Queue of raw packets to stream
 packet_queue = queue.Queue(maxsize=5000)
@@ -96,27 +100,18 @@ def imu_init(offset=0.0):
     time.sleep(0.01)
     _bus.write_byte_data(BNO055_ADDRESS, REG_PAGE_ID, 0x00)
     _bus.write_byte_data(BNO055_ADDRESS, REG_UNIT_SEL, 0x00)
-    _bus.write_byte_data(BNO055_ADDRESS, REG_OPR_MODE, MODE_NDOF)
+    _bus.write_byte_data(BNO055_ADDRESS, REG_OPR_MODE, MODE_NDOF_FMC_OFF)
     time.sleep(0.02)
 
-    if os.path.exists(CAL_PATH):
-        _bus.write_byte_data(BNO055_ADDRESS, REG_OPR_MODE, MODE_CONFIG)
-        time.sleep(0.025)
-        with open(CAL_PATH) as f:
-            cal = json.load(f)
-        for i, val in enumerate(cal):
-            _bus.write_byte_data(BNO055_ADDRESS, REG_CALIB_DATA + i, val)
-        _bus.write_byte_data(BNO055_ADDRESS, REG_OPR_MODE, MODE_NDOF)
-        time.sleep(0.02)
-        print("Loaded saved calibration", flush=True)
-
-    print(f"BNO055 ready (offset={offset})", flush=True)
+    print(f"BNO055 ready (offset={offset}, NDOF_FMC_OFF mode)", flush=True)
 
 
 def heading_loop():
-    """Read heading at ~50Hz, update shared state."""
+    """Read heading at ~50Hz, update shared state and push degree changes."""
     global current_heading
     zero_count = 0
+    last_degree = -1
+    cal_counter = 0
     while True:
         try:
             data = None
@@ -147,6 +142,32 @@ def heading_loop():
 
             with heading_lock:
                 current_heading = heading
+
+            # Send a heading update every time we cross a new degree
+            degree = int(heading)
+            if degree != last_degree:
+                last_degree = degree
+                pkt = {"h": round(heading, 1), "t": "heading"}
+
+                # Read calibration status every ~10 degrees
+                cal_counter += 1
+                if cal_counter >= 10:
+                    cal_counter = 0
+                    try:
+                        cal = _bus.read_byte_data(BNO055_ADDRESS, REG_CALIB_STAT)
+                        pkt["cal"] = {
+                            "sys": (cal >> 6) & 0x03,
+                            "gyro": (cal >> 4) & 0x03,
+                            "accel": (cal >> 2) & 0x03,
+                            "mag": cal & 0x03,
+                        }
+                    except OSError:
+                        pass
+
+                try:
+                    packet_queue.put_nowait(pkt)
+                except queue.Full:
+                    pass
         except Exception as e:
             print(f"Heading error: {e}", flush=True)
         time.sleep(0.02)  # ~50Hz
@@ -173,19 +194,38 @@ def setup_monitor(iface):
 
 CHANNELS_24 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 CHANNELS_5 = [36, 40, 44, 48, 149, 153, 157, 161, 165]
-HOP_DWELL = 0.15  # seconds per channel — fast hopping
+HOP_DWELL = 0.2
+
+
+def set_channel(iface, ch):
+    subprocess.run(["iw", "dev", iface, "set", "channel", str(ch)],
+                   capture_output=True, text=True)
 
 
 def channel_hop_loop(iface):
-    """Hop through all WiFi channels quickly."""
+    """Hop channels or lock to a single channel based on target_channel."""
     channels = CHANNELS_24 + CHANNELS_5
+    current_ch = None
     while True:
-        for ch in channels:
-            subprocess.run(
-                ["iw", "dev", iface, "set", "channel", str(ch)],
-                capture_output=True, text=True,
-            )
-            time.sleep(HOP_DWELL)
+        with channel_lock:
+            tc = target_channel
+        if tc is not None:
+            # Locked — only set if changed
+            if current_ch != tc:
+                set_channel(iface, tc)
+                current_ch = tc
+                print(f"Channel locked to {tc}", flush=True)
+            channel_changed.wait(timeout=5.0)
+            channel_changed.clear()
+        else:
+            # Hop all channels
+            for ch in channels:
+                with channel_lock:
+                    if target_channel is not None:
+                        break
+                set_channel(iface, ch)
+                current_ch = ch
+                time.sleep(HOP_DWELL)
 
 
 def capture_loop(iface):
@@ -261,15 +301,28 @@ connected_clients = set()
 
 
 async def ws_handler(websocket):
+    global target_channel
     addr = websocket.remote_address
     print(f"Client connected from {addr}", flush=True)
     connected_clients.add(websocket)
     try:
         # Send dish identity
         await websocket.send(json.dumps({"type": "hello", "dish": DISH_ID}))
-        # Keep connection alive, actual data sent by broadcast_loop
         async for msg in websocket:
-            pass  # client doesn't send us anything
+            try:
+                data = json.loads(msg)
+                if data.get("cmd") == "set_channel":
+                    ch = data.get("channel")
+                    with channel_lock:
+                        if ch == "hop" or ch is None:
+                            target_channel = None
+                            print("Channel: hopping", flush=True)
+                        else:
+                            target_channel = int(ch)
+                            print(f"Channel: locked to {target_channel}", flush=True)
+                    channel_changed.set()
+            except (json.JSONDecodeError, ValueError):
+                pass
     except websockets.ConnectionClosed:
         pass
     finally:
@@ -293,7 +346,7 @@ async def broadcast_loop():
         if batch and connected_clients:
             msg = json.dumps({"type": "packets", "dish": DISH_ID, "pkts": batch})
             dead = set()
-            for ws in connected_clients:
+            for ws in list(connected_clients):
                 try:
                     await ws.send(msg)
                 except Exception:
@@ -330,9 +383,12 @@ async def main():
     if not setup_monitor(WIFI_IFACE):
         sys.exit(1)
 
-    # Always hop channels for maximum coverage
+    # Default to channel 6 (can be changed via WebSocket command)
+    global target_channel
+    target_channel = 6
+    set_channel(WIFI_IFACE, 6)
+    print(f"Locked to channel 6 (changeable via UI)", flush=True)
     threading.Thread(target=channel_hop_loop, args=(WIFI_IFACE,), daemon=True).start()
-    print(f"Channel hopping started (150ms dwell, 2.4+5GHz)", flush=True)
 
     # Start WiFi capture thread
     threading.Thread(target=capture_loop, args=(WIFI_IFACE,), daemon=True).start()

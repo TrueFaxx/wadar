@@ -36,11 +36,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("triangulator")
 
-DISH_1_IP = "192.168.1.101"
-DISH_2_IP = "192.168.1.103"
+DISH_1_IP = "192.168.1.103"  # Pi 3
+DISH_2_IP = "192.168.1.101"  # Pi 4
 DISH_WS_PORT = 8082
 
-COMPUTE_INTERVAL = 1.0
+COMPUTE_INTERVAL = 0.25  # 4Hz compute + heading push
 
 dish_config = {
     "distance": 3.82,
@@ -54,18 +54,16 @@ REF_LON = -122.415
 FLOOR_SIGNAL = -88       # dBm — reject signals weaker than this
 EMA_ALPHA = 0.3          # smoothing factor for RSSI
 HISTORY_WINDOW = 600     # seconds (10 minutes) of sample accumulation
-MIN_FRAMES = 1           # minimum packets to consider a target
+MIN_FRAMES = 5           # minimum packets to consider a target (filters drive-by probes)
 MIN_CONFIDENCE = 0.05    # minimum confidence to use a bearing
 MAX_RANGE = 200          # meters — reject positions further than this
 
 # Bearing estimation
 NUM_BINS = 72            # 5-degree bins
 BIN_WIDTH = 5.0
-MIN_BINS_COVERED = 4     # need at least 20 degrees of coverage (builds over time)
+MIN_BINS_COVERED = 2     # minimum bins needed (more bins = more accurate bearing)
 
 # RSSI distance model
-TX_POWER = -30
-PATH_LOSS_N = 2.7
 
 
 def dish2_position_meters():
@@ -80,18 +78,13 @@ def meters_to_latlon(x, y):
     return (lat, lon)
 
 
-def rssi_to_distance(rssi):
-    if rssi >= TX_POWER:
-        return 1.0
-    return 10 ** ((TX_POWER - rssi) / (10 * PATH_LOSS_N))
-
-
 def estimate_bearing(history):
     """Estimate bearing from accumulated (heading, rssi) samples.
 
-    Ported from wifi-densepose/radar.py estimate_bearing().
-    Uses 5-degree bins with average RSSI per bin, then weighted
-    circular mean of all bins (weight = max(0, avg_signal - floor)).
+    Bins into 5-degree sectors, finds the peak bin (strongest average RSSI),
+    then refines the bearing using a weighted average of the peak and its
+    immediate neighbors. This finds the actual direction of maximum signal,
+    not the center-of-mass of all signal.
 
     Returns (bearing_deg, confidence, peak_signal) or (None, 0, None).
     """
@@ -115,22 +108,31 @@ def estimate_bearing(history):
     peak_signal = profile[peak_bin]
     min_signal = min(profile.values())
 
-    # Weighted circular mean — weight = signal above floor
+    # Refine bearing using peak bin + neighbors (parabolic interpolation)
+    # Use up to 2 bins on each side of the peak
+    neighbors = []
+    for offset in range(-2, 3):
+        nb = (peak_bin + offset) % NUM_BINS
+        if nb in profile:
+            neighbors.append((nb, profile[nb]))
+
+    # Weighted circular mean of ONLY the peak neighborhood
     sin_sum = cos_sum = weight_sum = 0.0
-    for b, avg_sig in profile.items():
-        w = max(0.0, avg_sig - FLOOR_SIGNAL)
-        angle_rad = math.radians(b * BIN_WIDTH)
+    for b, avg_sig in neighbors:
+        # Weight by how much stronger than the minimum (emphasize the peak)
+        w = max(0.0, avg_sig - min_signal)
+        angle_rad = math.radians((b + 0.5) * BIN_WIDTH)
         sin_sum += w * math.sin(angle_rad)
         cos_sum += w * math.cos(angle_rad)
         weight_sum += w
 
     if weight_sum == 0:
-        return peak_bin * BIN_WIDTH, 0, peak_signal
+        bearing = (peak_bin + 0.5) * BIN_WIDTH
+    else:
+        bearing = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
 
-    bearing = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
-
-    # Confidence: peak-to-min contrast (wall behind dish creates bimodal pattern)
-    # 10 dB contrast between front and back = full confidence
+    # Confidence: peak-to-min contrast
+    # 10 dB contrast between strongest and weakest direction = full confidence
     swing = peak_signal - min_signal
     confidence = min(1.0, max(0.0, swing / 10.0))
 
@@ -232,10 +234,10 @@ class TriangulationEngine:
                 if bearing is not None and conf >= MIN_CONFIDENCE:
                     dish_bearings[did][bssid] = (bearing, conf, d["signal"])
 
-        # Collect all targets seen by any dish with a valid bearing
+        # Collect ALL targets seen by any dish
         all_targets = set()
         for did in dish_ids:
-            all_targets.update(dish_bearings[did].keys())
+            all_targets.update(self.devices[did].keys())
 
         results = []
         for bssid in all_targets:
@@ -248,7 +250,8 @@ class TriangulationEngine:
                     b, c, sig = dish_bearings[did][bssid]
                     bearings[did] = b
                     confidences[did] = c
-                    best_rssi = max(best_rssi, sig)
+                if bssid in self.devices.get(did, {}):
+                    best_rssi = max(best_rssi, self.devices[did][bssid]["signal"])
 
             lat, lon = None, None
             fix = False
@@ -266,34 +269,52 @@ class TriangulationEngine:
                             lat, lon = meters_to_latlon(pos[0], pos[1])
                             fix = True
 
-            # Single-dish fallback
-            if not fix and bearings:
-                did = next(iter(bearings))
-                dist = rssi_to_distance(best_rssi)
-                origin = dish_pos.get(did, p1)
-                b_rad = math.radians(bearings[did])
-                x = origin[0] + dist * math.sin(b_rad)
-                y = origin[1] + dist * math.cos(b_rad)
-                d_from_origin = math.sqrt(x**2 + y**2)
-                if d_from_origin <= MAX_RANGE:
-                    lat, lon = meters_to_latlon(x, y)
+            # Bearing and distance from dishes (only if we have a fix)
+            bearing_from_d1 = bearings.get(dish_ids[0]) if dish_ids else None
+            bearing_from_d2 = bearings.get(dish_ids[1]) if len(dish_ids) >= 2 else None
+            dist_from_d1 = None
+            dist_from_d2 = None
 
-            if lat is not None:
-                conf = min(confidences.values()) if confidences else 0
-                results.append({
-                    "mac": bssid,
-                    "name": self.ssid_map.get(bssid, bssid),
-                    "rssi": best_rssi,
-                    "fix": fix,
-                    "confidence": round(conf, 2),
-                    "lat": round(lat, 7),
-                    "lon": round(lon, 7),
-                })
+            if fix:
+                dx_m = (lon - REF_LON) * 111320.0 * math.cos(math.radians(REF_LAT))
+                dy_m = (lat - REF_LAT) * 111320.0
+                dist_from_d1 = round(math.sqrt(dx_m**2 + dy_m**2), 1)
+                if bearing_from_d1 is None:
+                    bearing_from_d1 = round(math.degrees(math.atan2(dx_m, dy_m)) % 360, 1)
+                if len(dish_ids) >= 2:
+                    p2 = dish2_position_meters()
+                    p2_lat, p2_lon = meters_to_latlon(p2[0], p2[1])
+                    dx2_m = (lon - p2_lon) * 111320.0 * math.cos(math.radians(REF_LAT))
+                    dy2_m = (lat - p2_lat) * 111320.0
+                    dist_from_d2 = round(math.sqrt(dx2_m**2 + dy2_m**2), 1)
+
+            conf = min(confidences.values()) if confidences else 0
+            results.append({
+                "mac": bssid,
+                "name": self.ssid_map.get(bssid, bssid),
+                "rssi": best_rssi,
+                "fix": fix,
+                "confidence": round(conf, 2),
+                "lat": round(lat, 7) if lat else None,
+                "lon": round(lon, 7) if lon else None,
+                "bearing1": bearing_from_d1,
+                "dist1": dist_from_d1,
+                "bearing2": bearing_from_d2,
+                "dist2": dist_from_d2,
+            })
 
         return results
 
 
 engine = TriangulationEngine()
+
+
+# Track latest heading per dish for the push_loop
+dish_headings = {}
+# Track calibration status per dish
+dish_cal = {}  # dish_id -> {"sys": 0-3, "gyro": 0-3, "accel": 0-3, "mag": 0-3}
+# Store Pi WebSocket connections so we can send commands (e.g. channel)
+dish_ws = {}  # dish_id -> websocket
 
 
 async def listen_dish(ip, dish_id):
@@ -303,21 +324,29 @@ async def listen_dish(ip, dish_id):
         try:
             async with websockets.connect(url) as ws:
                 log.info("%s connected at %s", dish_id, url)
+                dish_ws[dish_id] = ws
                 async for msg in ws:
                     try:
                         data = json.loads(msg)
                         if data.get("type") == "packets":
                             for pkt in data.get("pkts", []):
+                                if pkt.get("t") == "heading":
+                                    dish_headings[dish_id] = pkt["h"]
+                                    if "cal" in pkt:
+                                        dish_cal[dish_id] = pkt["cal"]
+                                    continue
                                 heading = pkt.get("h")
                                 rssi = pkt.get("r")
                                 bssid = pkt.get("b")
                                 if heading is None or rssi is None or bssid is None:
                                     continue
+                                dish_headings[dish_id] = heading
                                 ssid = pkt.get("s", "")
                                 engine.ingest_packet(dish_id, heading, bssid, ssid, rssi)
                     except (json.JSONDecodeError, KeyError):
                         pass
         except Exception as e:
+            dish_ws.pop(dish_id, None)
             log.warning("%s connection failed: %s, retrying in 2s...", dish_id, e)
             await asyncio.sleep(2)
 
@@ -357,25 +386,33 @@ async def push_loop():
 
         # Push dish headings to :5004
         for dish_id in ["DISH-1", "DISH-2"]:
-            dish_devs = engine.devices.get(dish_id, {})
-            latest_heading = None
-            latest_t = 0
-            for d in dish_devs.values():
-                if d["history"] and d["last_seen"] > latest_t:
-                    latest_t = d["last_seen"]
-                    latest_heading = d["history"][-1][0]
+            latest_heading = dish_headings.get(dish_id)
             if latest_heading is not None:
                 ws = await get_ws(dish_id, "ws://localhost:5004",
                                   {"data": "connect", "id": dish_id})
                 if ws:
                     try:
-                        await ws.send(json.dumps({"degrees": latest_heading}))
+                        msg = {"degrees": latest_heading}
+                        if dish_id in dish_cal:
+                            msg["cal"] = dish_cal[dish_id]
+                        await ws.send(json.dumps(msg))
                     except Exception:
                         ws_conns.pop(dish_id, None)
 
         fixes = sum(1 for d in devices if d["fix"]) if devices else 0
         if devices:
             log.info("%d targets, %d fixed", len(devices), fixes)
+
+
+async def send_channel_to_pis(channel):
+    """Forward channel command to both Pi dish_clients."""
+    cmd = json.dumps({"cmd": "set_channel", "channel": channel})
+    for did, ws in list(dish_ws.items()):
+        try:
+            await ws.send(cmd)
+            log.info("Sent channel=%s to %s", channel, did)
+        except Exception:
+            pass
 
 
 async def config_listener():
@@ -388,13 +425,21 @@ async def config_listener():
                 async for msg in ws:
                     try:
                         data = json.loads(msg)
-                        if data.get("type") == "config":
+                        if data.get("type") == "wipe":
+                            engine.devices.clear()
+                            engine.ssid_map.clear()
+                            log.info("Data wiped")
+
+                        elif data.get("type") == "config":
                             if "distance" in data:
                                 dish_config["distance"] = float(data["distance"])
                             if "bearing" in data:
                                 dish_config["bearing"] = float(data["bearing"])
-                            log.info("Config: dist=%.1fm bearing=%.1f deg",
-                                     dish_config["distance"], dish_config["bearing"])
+                            if "channel" in data:
+                                await send_channel_to_pis(data["channel"])
+                            log.info("Config: dist=%.1fm bearing=%.1f deg channel=%s",
+                                     dish_config["distance"], dish_config["bearing"],
+                                     data.get("channel", "?"))
                     except (json.JSONDecodeError, ValueError):
                         pass
         except Exception:

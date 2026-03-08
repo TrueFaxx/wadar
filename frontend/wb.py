@@ -13,7 +13,7 @@ log = logging.getLogger("wadar-ws")
 
 devices = []
 dishes = {}
-dish_config = {"distance": 3.82, "bearing": 94.0}
+dish_config = {"distance": 3.82, "bearing": 94.0, "channel": "6"}
 device_clients = set()
 dish_clients = {}
 web_clients = {}
@@ -42,6 +42,8 @@ async def handle_command(websocket, cmd, data):
             dish_config["distance"] = float(data["distance"])
         if "bearing" in data:
             dish_config["bearing"] = float(data["bearing"])
+        if "channel" in data:
+            dish_config["channel"] = str(data["channel"])
         log.info("Config updated: dist=%.1fm, bearing=%.1f deg",
                  dish_config["distance"], dish_config["bearing"])
         # Broadcast config to all web clients (triangulator listens on :5005)
@@ -51,6 +53,18 @@ async def handle_command(websocket, cmd, data):
                 await ws.send(config_msg)
             except Exception:
                 pass
+        await websocket.send(json.dumps({"cmd": cmd, "result": "OK"}))
+    elif action == "WIPE" and target == "DATA":
+        devices.clear()
+        log.info("Data wiped")
+        # Broadcast wipe to all web clients (triangulator listens)
+        wipe_msg = json.dumps({"type": "wipe"})
+        for cid, ws in list(web_clients.items()):
+            try:
+                await ws.send(wipe_msg)
+            except Exception:
+                pass
+        await broadcast_web()
         await websocket.send(json.dumps({"cmd": cmd, "result": "OK"}))
     elif action == "COUNT" and target == "DISH":
         await websocket.send(json.dumps({"cmd": cmd, "result": len(dishes)}))
@@ -121,7 +135,10 @@ async def dish_handler(websocket):
 
                 degrees = data.get("degrees")
                 if degrees is not None:
-                    dishes[dish_id] = {"id": dish_id, "degrees": degrees}
+                    dish_data = {"id": dish_id, "degrees": degrees}
+                    if "cal" in data:
+                        dish_data["cal"] = data["cal"]
+                    dishes[dish_id] = dish_data
                     await broadcast_web()
             except json.JSONDecodeError:
                 log.warning("DISH bad JSON from %s", addr)

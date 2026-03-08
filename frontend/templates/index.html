@@ -53,10 +53,39 @@
           <input type="number" id="cfg-distance" class="cfg-input" value="3.82" step="0.5" min="0.5">
           <span class="fix-label">BEARING</span>
           <input type="number" id="cfg-bearing" class="cfg-input" value="94" step="1" min="0" max="360">
-          <span class="fix-label">HEADING</span>
+          <span class="fix-label">CHANNEL</span>
+          <select id="cfg-channel" class="cfg-input">
+            <option value="hop">HOP (ALL)</option>
+            <optgroup label="2.4 GHz">
+              <option value="1">1 (2412)</option>
+              <option value="2">2 (2417)</option>
+              <option value="3">3 (2422)</option>
+              <option value="4">4 (2427)</option>
+              <option value="5">5 (2432)</option>
+              <option value="6" selected>6 (2437)</option>
+              <option value="7">7 (2442)</option>
+              <option value="8">8 (2447)</option>
+              <option value="9">9 (2452)</option>
+              <option value="10">10 (2457)</option>
+              <option value="11">11 (2462)</option>
+            </optgroup>
+            <optgroup label="5 GHz">
+              <option value="36">36 (5180)</option>
+              <option value="40">40 (5200)</option>
+              <option value="44">44 (5220)</option>
+              <option value="48">48 (5240)</option>
+              <option value="149">149 (5745)</option>
+              <option value="153">153 (5765)</option>
+              <option value="157">157 (5785)</option>
+              <option value="161">161 (5805)</option>
+              <option value="165">165 (5825)</option>
+            </optgroup>
+          </select>
+          <span class="fix-label">MAP HDG</span>
           <input type="number" id="cfg-heading" class="cfg-input" value="0" step="1" min="0" max="360">
         </div>
         <button class="cfg-btn" id="cfg-send">APPLY</button>
+        <button class="cfg-btn" id="cfg-wipe" style="margin-top:2px;">WIPE DATA</button>
       </div>
     </div>
   </div>
@@ -112,6 +141,10 @@ var dishes = {};
 var selectedDevice = 0;
 var ws = null;
 
+function metersToFeet(m) {
+  return (m * 3.28084).toFixed(0);
+}
+
 /* ============================================================
    RENDER DEVICE LIST
    ============================================================ */
@@ -120,8 +153,11 @@ function renderDevices() {
   list.textContent = '';
   var query = (document.getElementById('device-search').value || '').toLowerCase();
 
-  // Sort by RSSI descending (strongest/closest first)
-  var sorted = devices.slice().sort(function(a, b) { return b.rssi - a.rssi; });
+  // Fixed first, then by RSSI descending
+  var sorted = devices.slice().sort(function(a, b) {
+    if (a.fix !== b.fix) return a.fix ? -1 : 1;
+    return b.rssi - a.rssi;
+  });
 
   sorted.forEach(function(d) {
     if (query && d.mac.toLowerCase().indexOf(query) === -1 &&
@@ -152,6 +188,14 @@ function renderDevices() {
 
     li.appendChild(row);
     li.appendChild(name);
+
+    // Absolute bearing and distance from dish 1
+    if (d.bearing1 != null && d.dist1 != null) {
+      var info = document.createElement('div');
+      info.className = 'device-bearing';
+      info.textContent = d.bearing1.toFixed(0) + '\u00B0 \u00B7 ' + metersToFeet(d.dist1) + 'ft from DISH-1';
+      li.appendChild(info);
+    }
     li.addEventListener('click', function() {
       selectedDevice = origIdx;
       renderDevices();
@@ -169,6 +213,7 @@ document.getElementById('cfg-heading').addEventListener('input', function() {
   drawMap();
 });
 
+
 /* ============================================================
    RENDER DISHES
    ============================================================ */
@@ -185,20 +230,47 @@ function renderDishes() {
     return;
   }
 
-  var html = '';
+  panel.textContent = '';
   keys.forEach(function(k) {
     var d = dishes[k];
-    html +=
-      '<div class="data-section">' +
-        '<div class="fix-grid">' +
-          '<span class="fix-label">ID</span>' +
-          '<span class="fix-value">' + d.id + '</span>' +
-          '<span class="fix-label">DEGREES</span>' +
-          '<span class="fix-value">' + (d.degrees !== undefined ? d.degrees + '\u00B0' : '--') + '</span>' +
-        '</div>' +
-      '</div>';
+    var sec = document.createElement('div');
+    sec.className = 'data-section';
+
+    var grid = document.createElement('div');
+    grid.className = 'fix-grid';
+
+    function addRow(label, value) {
+      var l = document.createElement('span');
+      l.className = 'fix-label';
+      l.textContent = label;
+      var v = document.createElement('span');
+      v.className = 'fix-value';
+      v.textContent = value;
+      grid.appendChild(l);
+      grid.appendChild(v);
+    }
+
+    addRow('ID', d.id);
+    addRow('HEADING', d.degrees !== undefined ? d.degrees.toFixed(1) + '\u00B0' : '--');
+
+    if (d.cal) {
+      var calStr = 'S:' + d.cal.sys + ' G:' + d.cal.gyro + ' A:' + d.cal.accel + ' M:' + d.cal.mag;
+      var magOk = d.cal.mag >= 2;
+      addRow('IMU CAL', calStr);
+      if (!magOk) {
+        var warn = document.createElement('div');
+        warn.className = 'cal-warn';
+        warn.textContent = 'MAG NOT CALIBRATED - MOVE DISH IN FIGURE-8';
+        sec.appendChild(grid);
+        sec.appendChild(warn);
+        panel.appendChild(sec);
+        return;
+      }
+    }
+
+    sec.appendChild(grid);
+    panel.appendChild(sec);
   });
-  panel.innerHTML = html;
 }
 
 /* ============================================================
@@ -223,7 +295,6 @@ var mapDragStartY = 0;
 var mapPanStartX = 0;
 var mapPanStartY = 0;
 
-// Rotate screen-space delta into map space (invert the canvas rotation)
 function screenToMap(dx, dy) {
   var a = mapHeading * Math.PI / 180;
   var cos = Math.cos(a), sin = Math.sin(a);
@@ -354,12 +425,16 @@ function drawMap() {
         ctx.lineTo(px, py + 4); ctx.lineTo(px - 4, py);
         ctx.closePath(); ctx.stroke();
         ctx.shadowBlur = 0;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(-headingRad);
         ctx.fillStyle = C.bright;
         ctx.font = '13px "IBM 3270", monospace';
-        ctx.fillText(d.name, px + 12, py - 5);
+        ctx.fillText(d.name, 12, -5);
         ctx.fillStyle = C.normal;
         ctx.font = '12px "IBM 3270", monospace';
-        ctx.fillText(d.mac, px + 12, py + 9);
+        ctx.fillText(d.mac, 12, 9);
+        ctx.restore();
       } else {
         ctx.strokeStyle = C.dim;
         ctx.lineWidth = 1;
@@ -426,10 +501,14 @@ function drawMap() {
       ctx.setLineDash([]);
     }
 
-    // Label
+    // Label — counter-rotate so text stays upright
+    ctx.save();
+    ctx.translate(dx, dy);
+    ctx.rotate(-headingRad);
     ctx.fillStyle = C.bright;
     ctx.font = '11px "IBM 3270", monospace';
-    ctx.fillText(dp.id, dx + 10, dy - 8);
+    ctx.fillText(dp.id, 10, -8);
+    ctx.restore();
   });
 
   // Restore from heading rotation before drawing HUD
@@ -608,11 +687,18 @@ document.getElementById('cfg-send').addEventListener('click', function() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   var dist = parseFloat(document.getElementById('cfg-distance').value) || 10;
   var bearing = parseFloat(document.getElementById('cfg-bearing').value) || 90;
+  var channel = document.getElementById('cfg-channel').value;
   ws.send(JSON.stringify({
     cmd: 'SET CONFIG',
     distance: dist,
-    bearing: bearing
+    bearing: bearing,
+    channel: channel
   }));
+});
+
+document.getElementById('cfg-wipe').addEventListener('click', function() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ cmd: 'WIPE DATA' }));
 });
 
 /* ============================================================
