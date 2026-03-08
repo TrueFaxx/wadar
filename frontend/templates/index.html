@@ -21,8 +21,13 @@
     <div class="status-group">
       <span class="status-item">DISHES: <span class="val" id="dish-count-status">0</span></span>
       <span class="status-item">DEVICES: <span class="val" id="device-count">0</span></span>
+      <span class="status-item ws-status" id="ws-status">WS: <span class="val ws-disconnected">OFFLINE</span></span>
     </div>
-    <span class="status-item">MODE: TRIANGULATE</span>
+    <div class="status-group">
+      <a href="/" class="nav-link">HOME</a>
+      <a href="/signals" class="nav-link">SIGNALS</a>
+      <span class="status-item">MODE: TRIANGULATE</span>
+    </div>
   </div>
 
   <div class="content">
@@ -178,6 +183,43 @@ function closeSidebar() {
 
 document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
 
+function signalQuality(rssi) {
+  if (rssi >= -50) return { label: 'EXCELLENT', cls: 'sig-excellent' };
+  if (rssi >= -60) return { label: 'GOOD', cls: 'sig-good' };
+  if (rssi >= -70) return { label: 'FAIR', cls: 'sig-fair' };
+  if (rssi >= -80) return { label: 'WEAK', cls: 'sig-weak' };
+  return { label: 'VERY WEAK', cls: 'sig-vweak' };
+}
+
+function calcPathStats(path) {
+  if (!path || path.length < 2) return null;
+  var last = path[path.length - 1];
+  var prev = path[path.length - 2];
+  var dt = last.ts - prev.ts;
+  if (dt <= 0) return null;
+  var dlat = last.lat - prev.lat;
+  var dlon = last.lon - prev.lon;
+  var distM = Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
+  var speedMs = distM / dt;
+  var headingRad = Math.atan2(dlon, dlat);
+  var headingDeg = ((headingRad * 180 / Math.PI) + 360) % 360;
+  // total distance
+  var totalM = 0;
+  for (var i = 1; i < path.length; i++) {
+    var dx = (path[i].lat - path[i-1].lat);
+    var dy = (path[i].lon - path[i-1].lon);
+    totalM += Math.sqrt(dx * dx + dy * dy) * 111320;
+  }
+  var elapsed = path[path.length-1].ts - path[0].ts;
+  return { speed: speedMs, heading: headingDeg, totalDist: totalM, elapsed: elapsed };
+}
+
+function fmtElapsed(secs) {
+  if (secs < 60) return Math.floor(secs) + 's';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ' + Math.floor(secs % 60) + 's';
+  return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
+}
+
 function renderSidebar() {
   var container = document.getElementById('sidebar-content');
   if (!sidebarDevice) {
@@ -186,73 +228,109 @@ function renderSidebar() {
   }
   var d = sidebarDevice;
   var html = '';
+  var sq = signalQuality(d.rssi);
 
-  // UUID
+  // ── IDENTITY GROUP ──
+  html += '<div class="sb-group">';
+  html += '<div class="sb-group-label">IDENTITY</div>';
+
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">SSID / NAME</div>';
+  html += '<div class="sb-value sb-device-name">' + (d.name || '--') + '</div>';
+  html += '</div>';
+
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">MAC ADDRESS</div>';
+  html += '<div class="sb-value sb-mono">' + d.mac + '</div>';
+  html += '</div>';
+
   html += '<div class="sb-section">';
   html += '<div class="sb-label">UUID</div>';
   html += '<div class="sb-value sb-uuid">' + (d.uuid || '--') + '</div>';
   html += '</div>';
 
-  // MAC
-  html += '<div class="sb-section">';
-  html += '<div class="sb-label">MAC ADDRESS</div>';
-  html += '<div class="sb-value">' + d.mac + '</div>';
   html += '</div>';
 
-  // Name/SSID
-  html += '<div class="sb-section">';
-  html += '<div class="sb-label">SSID / NAME</div>';
-  html += '<div class="sb-value">' + (d.name || '--') + '</div>';
-  html += '</div>';
+  // ── SIGNAL GROUP ──
+  html += '<div class="sb-group">';
+  html += '<div class="sb-group-label">SIGNAL</div>';
 
-  // Signal
   html += '<div class="sb-section">';
-  html += '<div class="sb-label">SIGNAL STRENGTH</div>';
+  html += '<div class="sb-signal-header">';
+  html += '<span class="sb-label">STRENGTH</span>';
+  html += '<span class="sb-signal-quality ' + sq.cls + '">' + sq.label + '</span>';
+  html += '</div>';
   var pct = Math.max(0, Math.min(100, (d.rssi + 100) * 2));
-  html += '<div class="sb-signal-bar"><div class="sb-signal-fill" style="width:' + pct + '%"></div></div>';
-  html += '<div class="sb-value">' + d.rssi + ' dBm</div>';
+  html += '<div class="sb-signal-bar"><div class="sb-signal-fill ' + sq.cls + '" style="width:' + pct + '%"></div></div>';
+  html += '<div class="sb-signal-dbm">' + d.rssi + ' dBm</div>';
   html += '</div>';
 
-  // Fix status
-  html += '<div class="sb-section">';
-  html += '<div class="sb-label">FIX STATUS</div>';
-  html += '<div class="sb-value">' + (d.fix ? 'TRIANGULATED' : 'NO FIX') + '</div>';
+  // Fix + Confidence on same row
+  html += '<div class="sb-section sb-row">';
+  html += '<div class="sb-half">';
+  html += '<div class="sb-label">FIX</div>';
+  html += '<div class="sb-value sb-fix-badge ' + (d.fix ? 'fix-yes' : 'fix-no') + '">' + (d.fix ? 'TRIANGULATED' : 'NO FIX') + '</div>';
   html += '</div>';
-
-  // Confidence
-  html += '<div class="sb-section">';
+  html += '<div class="sb-half">';
   html += '<div class="sb-label">CONFIDENCE</div>';
-  html += '<div class="sb-value">' + ((d.confidence || 0) * 100).toFixed(0) + '%</div>';
+  var confPct = ((d.confidence || 0) * 100).toFixed(0);
+  html += '<div class="sb-conf-wrap">';
+  html += '<div class="sb-conf-bar"><div class="sb-conf-fill" style="width:' + confPct + '%"></div></div>';
+  html += '<span class="sb-conf-val">' + confPct + '%</span>';
+  html += '</div>';
+  html += '</div>';
   html += '</div>';
 
-  // Position
+  html += '</div>';
+
+  // ── POSITION GROUP ──
+  html += '<div class="sb-group">';
+  html += '<div class="sb-group-label">POSITION</div>';
+
   if (d.lat && d.lon) {
     html += '<div class="sb-section">';
-    html += '<div class="sb-label">POSITION</div>';
-    html += '<div class="sb-value">' + d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) + '</div>';
+    html += '<div class="sb-label">COORDINATES</div>';
+    html += '<div class="sb-value sb-mono">' + d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) + '</div>';
     html += '</div>';
   }
 
-  // Bearing/Distance
-  if (d.bearing1 != null) {
-    html += '<div class="sb-section">';
-    html += '<div class="sb-label">FROM DISH-1</div>';
-    html += '<div class="sb-value">' + d.bearing1.toFixed(1) + '\u00B0';
-    if (d.dist1 != null) html += ' \u00B7 ' + metersToFeet(d.dist1) + ' ft';
-    html += '</div>';
-    html += '</div>';
-  }
-  if (d.bearing2 != null) {
-    html += '<div class="sb-section">';
-    html += '<div class="sb-label">FROM DISH-2</div>';
-    html += '<div class="sb-value">' + d.bearing2.toFixed(1) + '\u00B0';
-    if (d.dist2 != null) html += ' \u00B7 ' + metersToFeet(d.dist2) + ' ft';
-    html += '</div>';
+  if (d.bearing1 != null || d.bearing2 != null) {
+    html += '<div class="sb-section sb-dish-grid">';
+    if (d.bearing1 != null) {
+      html += '<div class="sb-dish-card">';
+      html += '<div class="sb-dish-id">DISH-1</div>';
+      html += '<div class="sb-dish-bearing">' + d.bearing1.toFixed(1) + '\u00B0</div>';
+      if (d.dist1 != null) html += '<div class="sb-dish-dist">' + metersToFeet(d.dist1) + ' ft</div>';
+      html += '</div>';
+    }
+    if (d.bearing2 != null) {
+      html += '<div class="sb-dish-card">';
+      html += '<div class="sb-dish-id">DISH-2</div>';
+      html += '<div class="sb-dish-bearing">' + d.bearing2.toFixed(1) + '\u00B0</div>';
+      if (d.dist2 != null) html += '<div class="sb-dish-dist">' + metersToFeet(d.dist2) + ' ft</div>';
+      html += '</div>';
+    }
     html += '</div>';
   }
 
-  // Path history
+  html += '</div>';
+
+  // ── MOVEMENT GROUP ──
   var path = d.path || [];
+  var stats = calcPathStats(path);
+
+  html += '<div class="sb-group">';
+  html += '<div class="sb-group-label">MOVEMENT</div>';
+
+  if (stats) {
+    html += '<div class="sb-section sb-stats-grid">';
+    html += '<div class="sb-stat"><div class="sb-stat-val">' + (stats.speed * 3.28084).toFixed(1) + '</div><div class="sb-stat-unit">ft/s</div></div>';
+    html += '<div class="sb-stat"><div class="sb-stat-val">' + stats.heading.toFixed(0) + '\u00B0</div><div class="sb-stat-unit">heading</div></div>';
+    html += '<div class="sb-stat"><div class="sb-stat-val">' + metersToFeet(stats.totalDist) + '</div><div class="sb-stat-unit">ft total</div></div>';
+    html += '<div class="sb-stat"><div class="sb-stat-val">' + fmtElapsed(stats.elapsed) + '</div><div class="sb-stat-unit">tracked</div></div>';
+    html += '</div>';
+  }
+
   html += '<div class="sb-section">';
   html += '<div class="sb-label">PATH HISTORY</div>';
   html += '<div class="sb-value">' + path.length + ' points recorded</div>';
@@ -260,9 +338,8 @@ function renderSidebar() {
 
   if (path.length > 0) {
     html += '<div class="sb-section">';
-    html += '<div class="sb-label">PATH LOG</div>';
-    html += '<div class="sb-path-list">';
-    // Show latest 30 points in reverse order
+    html += '<div class="sb-path-toggle" id="path-toggle">SHOW PATH LOG</div>';
+    html += '<div class="sb-path-list" id="path-list" style="display:none">';
     var show = path.slice(-30).reverse();
     show.forEach(function(pt, i) {
       var t = new Date(pt.ts * 1000);
@@ -279,7 +356,24 @@ function renderSidebar() {
     html += '</div>';
   }
 
+  html += '</div>';
+
   container.innerHTML = html;
+
+  // Wire up path toggle
+  var toggle = document.getElementById('path-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', function() {
+      var list = document.getElementById('path-list');
+      if (list.style.display === 'none') {
+        list.style.display = 'block';
+        toggle.textContent = 'HIDE PATH LOG';
+      } else {
+        list.style.display = 'none';
+        toggle.textContent = 'SHOW PATH LOG';
+      }
+    });
+  }
 }
 
 /* ============================================================
@@ -321,12 +415,22 @@ function renderDevices() {
 
     var name = document.createElement('div');
     name.className = 'device-name';
-    name.textContent = d.name;
+    name.textContent = d.name || '--';
+
+    // Inline mini signal bar
+    var sigWrap = document.createElement('div');
+    sigWrap.className = 'device-signal-bar';
+    var sigFill = document.createElement('div');
+    sigFill.className = 'device-signal-fill';
+    var pct = Math.max(0, Math.min(100, (d.rssi + 100) * 2));
+    sigFill.style.width = pct + '%';
+    sigWrap.appendChild(sigFill);
 
     li.appendChild(row);
     li.appendChild(name);
+    li.appendChild(sigWrap);
 
-    // Absolute bearing and distance from dish 1
+    // Bearing and distance from dish 1
     if (d.bearing1 != null && d.dist1 != null) {
       var info = document.createElement('div');
       info.className = 'device-bearing';
@@ -848,10 +952,24 @@ function handleState(data) {
   }
 }
 
+function updateWsStatus(online) {
+  var el = document.getElementById('ws-status');
+  if (!el) return;
+  var val = el.querySelector('.val');
+  if (online) {
+    val.textContent = 'ONLINE';
+    val.className = 'val ws-connected';
+  } else {
+    val.textContent = 'OFFLINE';
+    val.className = 'val ws-disconnected';
+  }
+}
+
 function connectWebSocket() {
   ws = new WebSocket('ws://localhost:5005');
   ws.onopen = function() {
     ws.send(JSON.stringify({data: 'connect', id: 'WEB-' + Date.now()}));
+    updateWsStatus(true);
   };
   ws.onmessage = function(e) {
     try {
@@ -862,12 +980,46 @@ function connectWebSocket() {
   };
   ws.onclose = function() {
     ws = null;
+    updateWsStatus(false);
     setTimeout(connectWebSocket, 2000);
   };
   ws.onerror = function() {
     ws.close();
   };
 }
+
+/* ============================================================
+   KEYBOARD NAVIGATION
+   ============================================================ */
+document.addEventListener('keydown', function(e) {
+  // Don't intercept if typing in an input
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+  if (e.key === 'Escape' && sidebarOpen) {
+    closeSidebar();
+    e.preventDefault();
+    return;
+  }
+
+  if (devices.length === 0) return;
+
+  if (e.key === 'ArrowDown' || e.key === 'j') {
+    selectedDevice = (selectedDevice + 1) % devices.length;
+    openSidebar(devices[selectedDevice]);
+    renderDevices();
+    drawMap();
+    e.preventDefault();
+  } else if (e.key === 'ArrowUp' || e.key === 'k') {
+    selectedDevice = (selectedDevice - 1 + devices.length) % devices.length;
+    openSidebar(devices[selectedDevice]);
+    renderDevices();
+    drawMap();
+    e.preventDefault();
+  } else if (e.key === 'Enter' && !sidebarOpen && devices.length > 0) {
+    openSidebar(devices[selectedDevice]);
+    e.preventDefault();
+  }
+});
 
 /* ============================================================
    DISH CONFIG
