@@ -39,7 +39,8 @@ log = logging.getLogger("triangulator")
 
 DISH_1_IP = "192.168.1.103"  # Pi 3
 DISH_2_IP = "192.168.1.101"  # Pi 4
-DISH_WS_PORT = 8082
+DISH_1_PORT = 8082
+DISH_2_PORT = 8082
 
 COMPUTE_INTERVAL = 0.25  # 4Hz compute + heading push
 
@@ -350,9 +351,9 @@ dish_cal = {}  # dish_id -> {"sys": 0-3, "gyro": 0-3, "accel": 0-3, "mag": 0-3}
 dish_ws = {}  # dish_id -> websocket
 
 
-async def listen_dish(ip, dish_id):
-    """Connect to a Pi's dish_client WebSocket server and ingest raw packets."""
-    url = f"ws://{ip}:{DISH_WS_PORT}"
+async def listen_dish(ip, port, dish_id):
+    """Connect to a dish_client WebSocket server and ingest raw packets."""
+    url = f"ws://{ip}:{port}"
     while True:
         try:
             async with websockets.connect(url) as ws:
@@ -482,16 +483,19 @@ async def config_listener():
 
 
 async def main():
+    global DISH_1_PORT, DISH_2_PORT
     dish1_ip = sys.argv[1] if len(sys.argv) > 1 else DISH_1_IP
     dish2_ip = sys.argv[2] if len(sys.argv) > 2 else DISH_2_IP
+    DISH_1_PORT = int(sys.argv[3]) if len(sys.argv) > 3 else DISH_1_PORT
+    DISH_2_PORT = int(sys.argv[4]) if len(sys.argv) > 4 else DISH_2_PORT
 
     log.info("Triangulator starting")
-    log.info("  DISH-1: ws://%s:%d", dish1_ip, DISH_WS_PORT)
-    log.info("  DISH-2: ws://%s:%d", dish2_ip, DISH_WS_PORT)
+    log.info("  DISH-1: ws://%s:%d", dish1_ip, DISH_1_PORT)
+    log.info("  DISH-2: ws://%s:%d", dish2_ip, DISH_2_PORT)
 
     await asyncio.gather(
-        listen_dish(dish1_ip, "DISH-1"),
-        listen_dish(dish2_ip, "DISH-2"),
+        listen_dish(dish1_ip, DISH_1_PORT, "DISH-1"),
+        listen_dish(dish2_ip, DISH_2_PORT, "DISH-2"),
         push_loop(),
         config_listener(),
     )
