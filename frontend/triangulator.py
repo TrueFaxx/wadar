@@ -25,6 +25,7 @@ import logging
 import math
 import sys
 import time
+import uuid
 from collections import defaultdict
 
 import websockets
@@ -169,6 +170,12 @@ class TriangulationEngine:
         self.devices = {}
         self.ssid_map = {}
         self._last_prune = time.time()
+        # UUID tracking: bssid -> stable UUID
+        self.uuid_map = {}
+        # Path tracking: bssid -> [(lat, lon, timestamp), ...]
+        self.path_history = {}
+        self.PATH_MAX_POINTS = 500
+        self.PATH_MIN_INTERVAL = 2.0  # seconds between path points
 
     def ingest_packet(self, dish_id, heading, bssid, ssid, rssi):
         """Ingest a single raw packet: one beacon/probe with its heading."""
@@ -183,6 +190,10 @@ class TriangulationEngine:
 
         if ssid:
             self.ssid_map[bssid] = ssid
+
+        # Assign stable UUID on first sight
+        if bssid not in self.uuid_map:
+            self.uuid_map[bssid] = str(uuid.uuid4())
 
         if bssid not in devs:
             devs[bssid] = {
@@ -288,9 +299,30 @@ class TriangulationEngine:
                     dy2_m = (lat - p2_lat) * 111320.0
                     dist_from_d2 = round(math.sqrt(dx2_m**2 + dy2_m**2), 1)
 
+            # Record path point if we have a fix
+            now = time.time()
+            if fix and lat and lon:
+                if bssid not in self.path_history:
+                    self.path_history[bssid] = []
+                path = self.path_history[bssid]
+                # Only add if enough time has elapsed since last point
+                if not path or (now - path[-1][2]) >= self.PATH_MIN_INTERVAL:
+                    path.append((round(lat, 7), round(lon, 7), round(now, 1)))
+                    if len(path) > self.PATH_MAX_POINTS:
+                        self.path_history[bssid] = path[-self.PATH_MAX_POINTS:]
+
+            # Build path for output (lat/lon pairs with timestamps)
+            device_path = []
+            if bssid in self.path_history:
+                device_path = [
+                    {"lat": p[0], "lon": p[1], "ts": p[2]}
+                    for p in self.path_history[bssid]
+                ]
+
             conf = min(confidences.values()) if confidences else 0
             results.append({
                 "mac": bssid,
+                "uuid": self.uuid_map.get(bssid, ""),
                 "name": self.ssid_map.get(bssid, bssid),
                 "rssi": best_rssi,
                 "fix": fix,
@@ -301,6 +333,7 @@ class TriangulationEngine:
                 "dist1": dist_from_d1,
                 "bearing2": bearing_from_d2,
                 "dist2": dist_from_d2,
+                "path": device_path,
             })
 
         return results
@@ -428,6 +461,8 @@ async def config_listener():
                         if data.get("type") == "wipe":
                             engine.devices.clear()
                             engine.ssid_map.clear()
+                            engine.path_history.clear()
+                            engine.uuid_map.clear()
                             log.info("Data wiped")
 
                         elif data.get("type") == "config":

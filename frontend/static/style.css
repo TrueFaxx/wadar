@@ -492,6 +492,152 @@ html, body {
 }
 
 /* ============================================================
+   DEVICE TRACKING SIDEBAR
+   ============================================================ */
+.sidebar {
+  position: fixed;
+  top: 0;
+  right: -380px;
+  width: 360px;
+  height: 100%;
+  background: var(--bg-panel);
+  border-left: 2px solid var(--p-mid);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  transition: right 0.3s ease;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar.open {
+  right: 0;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--p-faint);
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--p-mid);
+}
+
+.sidebar-close {
+  background: none;
+  border: 1px solid var(--p-faint);
+  color: var(--p-dim);
+  font-family: var(--font);
+  font-size: 16px;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.sidebar-close:hover {
+  border-color: var(--p-mid);
+  color: var(--p);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+.sidebar-empty {
+  color: var(--p-dim);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-align: center;
+  padding: 40px 10px;
+}
+
+.sb-section {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--p-ghost);
+}
+
+.sb-label {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--p-dim);
+  margin-bottom: 2px;
+}
+
+.sb-value {
+  font-size: 12px;
+  color: var(--p);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.sb-uuid {
+  font-size: 10px;
+  color: var(--p-mid);
+  letter-spacing: 0.03em;
+}
+
+.sb-signal-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--p-ghost);
+  margin: 4px 0 2px 0;
+}
+
+.sb-signal-fill {
+  height: 100%;
+  background: var(--p-mid);
+  transition: width 0.3s;
+}
+
+.sb-path-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.sb-path-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.sb-path-idx {
+  color: var(--p-faint);
+  width: 24px;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 9px;
+}
+
+.sb-path-coord {
+  color: var(--p);
+  flex: 1;
+}
+
+.sb-path-time {
+  color: var(--p-dim);
+  flex-shrink: 0;
+  font-size: 9px;
+}
+
+/* ============================================================
    SCROLLBAR
    ============================================================ */
 ::-webkit-scrollbar { width: 4px; }

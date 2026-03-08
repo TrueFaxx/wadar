@@ -31,6 +31,17 @@
       <canvas id="map-canvas"></canvas>
     </div>
 
+    <!-- DEVICE TRACKING SIDEBAR -->
+    <div class="sidebar" id="device-sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">DEVICE TRACKER</span>
+        <button class="sidebar-close" id="sidebar-close">&times;</button>
+      </div>
+      <div class="sidebar-content" id="sidebar-content">
+        <div class="sidebar-empty">SELECT A DEVICE TO VIEW TRACKING DATA</div>
+      </div>
+    </div>
+
     <div class="compartment c-devices boot-hidden" id="boot-devices">
       <div class="compartment-label">DETECTED DEVICES</div>
       <div class="device-search-wrap">
@@ -139,10 +150,136 @@ function updateClock() {
 var devices = [];
 var dishes = {};
 var selectedDevice = 0;
+var sidebarOpen = false;
+var sidebarDevice = null;  // the device object currently shown in sidebar
 var ws = null;
 
 function metersToFeet(m) {
   return (m * 3.28084).toFixed(0);
+}
+
+/* ============================================================
+   DEVICE TRACKING SIDEBAR
+   ============================================================ */
+function openSidebar(device) {
+  sidebarDevice = device;
+  sidebarOpen = true;
+  document.getElementById('device-sidebar').classList.add('open');
+  renderSidebar();
+  drawMap();
+}
+
+function closeSidebar() {
+  sidebarOpen = false;
+  sidebarDevice = null;
+  document.getElementById('device-sidebar').classList.remove('open');
+  drawMap();
+}
+
+document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+
+function renderSidebar() {
+  var container = document.getElementById('sidebar-content');
+  if (!sidebarDevice) {
+    container.innerHTML = '<div class="sidebar-empty">SELECT A DEVICE TO VIEW TRACKING DATA</div>';
+    return;
+  }
+  var d = sidebarDevice;
+  var html = '';
+
+  // UUID
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">UUID</div>';
+  html += '<div class="sb-value sb-uuid">' + (d.uuid || '--') + '</div>';
+  html += '</div>';
+
+  // MAC
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">MAC ADDRESS</div>';
+  html += '<div class="sb-value">' + d.mac + '</div>';
+  html += '</div>';
+
+  // Name/SSID
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">SSID / NAME</div>';
+  html += '<div class="sb-value">' + (d.name || '--') + '</div>';
+  html += '</div>';
+
+  // Signal
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">SIGNAL STRENGTH</div>';
+  var pct = Math.max(0, Math.min(100, (d.rssi + 100) * 2));
+  html += '<div class="sb-signal-bar"><div class="sb-signal-fill" style="width:' + pct + '%"></div></div>';
+  html += '<div class="sb-value">' + d.rssi + ' dBm</div>';
+  html += '</div>';
+
+  // Fix status
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">FIX STATUS</div>';
+  html += '<div class="sb-value">' + (d.fix ? 'TRIANGULATED' : 'NO FIX') + '</div>';
+  html += '</div>';
+
+  // Confidence
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">CONFIDENCE</div>';
+  html += '<div class="sb-value">' + ((d.confidence || 0) * 100).toFixed(0) + '%</div>';
+  html += '</div>';
+
+  // Position
+  if (d.lat && d.lon) {
+    html += '<div class="sb-section">';
+    html += '<div class="sb-label">POSITION</div>';
+    html += '<div class="sb-value">' + d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) + '</div>';
+    html += '</div>';
+  }
+
+  // Bearing/Distance
+  if (d.bearing1 != null) {
+    html += '<div class="sb-section">';
+    html += '<div class="sb-label">FROM DISH-1</div>';
+    html += '<div class="sb-value">' + d.bearing1.toFixed(1) + '\u00B0';
+    if (d.dist1 != null) html += ' \u00B7 ' + metersToFeet(d.dist1) + ' ft';
+    html += '</div>';
+    html += '</div>';
+  }
+  if (d.bearing2 != null) {
+    html += '<div class="sb-section">';
+    html += '<div class="sb-label">FROM DISH-2</div>';
+    html += '<div class="sb-value">' + d.bearing2.toFixed(1) + '\u00B0';
+    if (d.dist2 != null) html += ' \u00B7 ' + metersToFeet(d.dist2) + ' ft';
+    html += '</div>';
+    html += '</div>';
+  }
+
+  // Path history
+  var path = d.path || [];
+  html += '<div class="sb-section">';
+  html += '<div class="sb-label">PATH HISTORY</div>';
+  html += '<div class="sb-value">' + path.length + ' points recorded</div>';
+  html += '</div>';
+
+  if (path.length > 0) {
+    html += '<div class="sb-section">';
+    html += '<div class="sb-label">PATH LOG</div>';
+    html += '<div class="sb-path-list">';
+    // Show latest 30 points in reverse order
+    var show = path.slice(-30).reverse();
+    show.forEach(function(pt, i) {
+      var t = new Date(pt.ts * 1000);
+      var ts = String(t.getHours()).padStart(2,'0') + ':' +
+               String(t.getMinutes()).padStart(2,'0') + ':' +
+               String(t.getSeconds()).padStart(2,'0');
+      html += '<div class="sb-path-entry">';
+      html += '<span class="sb-path-idx">' + (path.length - i) + '</span>';
+      html += '<span class="sb-path-coord">' + pt.lat.toFixed(5) + ', ' + pt.lon.toFixed(5) + '</span>';
+      html += '<span class="sb-path-time">' + ts + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
 }
 
 /* ============================================================
@@ -198,6 +335,7 @@ function renderDevices() {
     }
     li.addEventListener('click', function() {
       selectedDevice = origIdx;
+      openSidebar(d);
       renderDevices();
       drawMap();
     });
@@ -398,6 +536,49 @@ function drawMap() {
     var yp = (yi * cellH) * mapZoom + mapPanY;
     if (yp < -1 || yp > h + 1) continue;
     ctx.beginPath(); ctx.moveTo(0, yp); ctx.lineTo(w, yp); ctx.stroke();
+  }
+
+  // Draw path for sidebar device
+  if (sidebarDevice && sidebarDevice.path && sidebarDevice.path.length > 1) {
+    var path = sidebarDevice.path;
+    ctx.strokeStyle = C.mid;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    var first = latLonToCanvas(path[0].lat, path[0].lon, w, h);
+    ctx.moveTo(first.x, first.y);
+    for (var pi = 1; pi < path.length; pi++) {
+      var pp = latLonToCanvas(path[pi].lat, path[pi].lon, w, h);
+      ctx.lineTo(pp.x, pp.y);
+    }
+    ctx.stroke();
+
+    // Draw dots along path
+    path.forEach(function(pt, idx) {
+      var pp = latLonToCanvas(pt.lat, pt.lon, w, h);
+      var isLast = (idx === path.length - 1);
+      ctx.fillStyle = isLast ? C.bright : C.dim;
+      ctx.beginPath();
+      ctx.arc(pp.x, pp.y, isLast ? 4 : 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Path start marker
+    if (path.length > 0) {
+      var startPt = latLonToCanvas(path[0].lat, path[0].lon, w, h);
+      ctx.strokeStyle = C.dim;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(startPt.x, startPt.y, 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(startPt.x, startPt.y);
+      ctx.rotate(-headingRad);
+      ctx.fillStyle = C.dim;
+      ctx.font = '9px "IBM 3270", monospace';
+      ctx.fillText('START', 9, -2);
+      ctx.restore();
+    }
   }
 
   // Targets
@@ -649,6 +830,14 @@ function handleState(data) {
   if (data.devices) {
     devices = data.devices;
     if (selectedDevice >= devices.length) selectedDevice = 0;
+    // Update sidebar device if it's open
+    if (sidebarOpen && sidebarDevice) {
+      var updated = devices.find(function(d) { return d.mac === sidebarDevice.mac; });
+      if (updated) {
+        sidebarDevice = updated;
+        renderSidebar();
+      }
+    }
     renderDevices();
     drawMap();
   }
