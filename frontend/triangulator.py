@@ -44,8 +44,8 @@ DISH_WS_PORT = 8082
 COMPUTE_INTERVAL = 0.25  # 4Hz compute + heading push
 
 dish_config = {
-    "distance": 3.82,
-    "bearing": 94.0,
+    "distance": replace me,
+    "bearing": replace me,
 }
 
 REF_LAT = 37.7725
